@@ -130,11 +130,11 @@ class TestUIIntegration(unittest.TestCase):
     """Test integración UI con backend"""
     
     def test_api_client_creation(self):
-        """Test: creación de cliente API"""
+        """Test: creación de cliente API - modo standalone"""
         from core.ui.api_client import MININAApiClient
         
         client = MININAApiClient()
-        self.assertEqual(client.base_url, "http://127.0.0.1:8897")
+        self.assertEqual(client.base_url, "local")
         
     def test_works_manager_integration(self):
         """Test: WorksManager funciona con UI"""

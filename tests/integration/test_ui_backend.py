@@ -13,17 +13,17 @@ class TestAPIClient(unittest.TestCase):
     """Tests del cliente API"""
     
     def test_client_creation(self):
-        """Test creación del cliente"""
+        """Test creación del cliente - ahora modo standalone"""
         from core.ui.api_client import MININAApiClient
         client = MININAApiClient()
-        self.assertEqual(client.base_url, "http://127.0.0.1:8897")
+        self.assertEqual(client.base_url, "local")
         
-    def test_health_check_offline(self):
-        """Test health check cuando servidor no está activo"""
+    def test_health_check_standalone(self):
+        """Test health check en modo standalone - siempre True si managers disponibles"""
         from core.ui.api_client import MININAApiClient
-        client = MININAApiClient(base_url="http://invalid:9999")
+        client = MININAApiClient()
         result = client.health_check()
-        self.assertFalse(result)
+        self.assertTrue(result)  # En standalone, verifica que managers estén disponibles
 
 
 class TestViewsIntegration(unittest.TestCase):
