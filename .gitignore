@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.so
+
+# Virtual envs
+.venv/
+venv/
+ENV/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local data / runtime artifacts
+backups/
+*.zip
+data/
+data/temp_sandbox/
+data/works/
+data/memory/*.db
+data/user_observability.db
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
