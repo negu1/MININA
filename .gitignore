@@ -31,3 +31,24 @@ data/user_observability.db
 # OS
 .DS_Store
 Thumbs.db
+
+# Repo-local miscellaneous artifacts (kept out of VCS)
+.env
+.env.*
+.env.example
+diagnostico.py
+fix_pyqt6*.py
+launch_ui.py
+launch_tkinter.py
+casa.png
+prueba1.png
+test_*.png
+test_debug.py
+test_execute.py
+test_imports.py
+test_skill_save.py
+requirements.txt
+AUDITORIA_*.md
+MEMORY_SYSTEM_README.md
+PLAN_REFACTOR.md
+REFACTOR_COMPLETADO.md
