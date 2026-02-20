@@ -1,0 +1,174 @@
+"""
+Script para actualizar _save_all_settings y _load_all_settings en settings_view.py
+Agrega las 15 APIs empresariales nuevas
+"""
+
+import re
+
+# Leer archivo
+with open('core/ui/views/settings_view.py', 'r', encoding='utf-8') as f:
+    content = f.read()
+
+# Código para agregar en _save_all_settings (despues de "teams")
+save_code = '''                "teams": {
+                    "webhook_url": self.teams_webhook_input.text() if hasattr(self, 'teams_webhook_input') else ""
+                },
+                "salesforce": {
+                    "username": self.salesforce_username_input.text() if hasattr(self, 'salesforce_username_input') else "",
+                    "password": self.salesforce_password_input.text() if hasattr(self, 'salesforce_password_input') else "",
+                    "security_token": self.salesforce_token_input.text() if hasattr(self, 'salesforce_token_input') else ""
+                },
+                "quickbooks": {
+                    "client_id": self.quickbooks_client_id_input.text() if hasattr(self, 'quickbooks_client_id_input') else "",
+                    "client_secret": self.quickbooks_client_secret_input.text() if hasattr(self, 'quickbooks_client_secret_input') else "",
+                    "realm_id": self.quickbooks_realm_input.text() if hasattr(self, 'quickbooks_realm_input') else ""
+                },
+                "shopify": {
+                    "store_url": self.shopify_store_input.text() if hasattr(self, 'shopify_store_input') else "",
+                    "access_token": self.shopify_token_input.text() if hasattr(self, 'shopify_token_input') else ""
+                },
+                "paypal": {
+                    "client_id": self.paypal_client_id_input.text() if hasattr(self, 'paypal_client_id_input') else "",
+                    "client_secret": self.paypal_secret_input.text() if hasattr(self, 'paypal_secret_input') else ""
+                },
+                "zendesk": {
+                    "subdomain": self.zendesk_subdomain_input.text() if hasattr(self, 'zendesk_subdomain_input') else "",
+                    "email": self.zendesk_email_input.text() if hasattr(self, 'zendesk_email_input') else "",
+                    "api_token": self.zendesk_token_input.text() if hasattr(self, 'zendesk_token_input') else ""
+                },
+                "clickup": {
+                    "api_token": self.clickup_token_input.text() if hasattr(self, 'clickup_token_input') else ""
+                },
+                "gitlab": {
+                    "personal_access_token": self.gitlab_token_input.text() if hasattr(self, 'gitlab_token_input') else "",
+                    "url": self.gitlab_url_input.text() if hasattr(self, 'gitlab_url_input') else ""
+                },
+                "airtable": {
+                    "personal_access_token": self.airtable_token_input.text() if hasattr(self, 'airtable_token_input') else ""
+                },
+                "pipedrive": {
+                    "api_token": self.pipedrive_token_input.text() if hasattr(self, 'pipedrive_token_input') else ""
+                },
+                "xero": {
+                    "client_id": self.xero_client_id_input.text() if hasattr(self, 'xero_client_id_input') else "",
+                    "client_secret": self.xero_client_secret_input.text() if hasattr(self, 'xero_client_secret_input') else ""
+                },
+                "woocommerce": {
+                    "store_url": self.wc_store_url_input.text() if hasattr(self, 'wc_store_url_input') else "",
+                    "consumer_key": self.wc_key_input.text() if hasattr(self, 'wc_key_input') else "",
+                    "consumer_secret": self.wc_secret_input.text() if hasattr(self, 'wc_secret_input') else ""
+                },
+                "freshdesk": {
+                    "domain": self.freshdesk_domain_input.text() if hasattr(self, 'freshdesk_domain_input') else "",
+                    "api_key": self.freshdesk_key_input.text() if hasattr(self, 'freshdesk_key_input') else ""
+                },
+                "wrike": {
+                    "permanent_access_token": self.wrike_token_input.text() if hasattr(self, 'wrike_token_input') else ""
+                },
+                "confluence": {
+                    "url": self.confluence_url_input.text() if hasattr(self, 'confluence_url_input') else "",
+                    "email": self.confluence_email_input.text() if hasattr(self, 'confluence_email_input') else "",
+                    "api_token": self.confluence_token_input.text() if hasattr(self, 'confluence_token_input') else ""
+                },
+                "square": {
+                    "access_token": self.square_token_input.text() if hasattr(self, 'square_token_input') else ""
+                }
+            }
+'''
+
+# Código para agregar en _load_all_settings (despues de Teams)
+load_code = '''                # Teams
+                if "teams" in third_party and hasattr(self, 'teams_webhook_input'):
+                    self.teams_webhook_input.setText(third_party["teams"].get("webhook_url", ""))
+                
+                # Salesforce
+                if "salesforce" in third_party and hasattr(self, 'salesforce_username_input'):
+                    self.salesforce_username_input.setText(third_party["salesforce"].get("username", ""))
+                    self.salesforce_password_input.setText(third_party["salesforce"].get("password", ""))
+                    self.salesforce_token_input.setText(third_party["salesforce"].get("security_token", ""))
+                
+                # QuickBooks
+                if "quickbooks" in third_party and hasattr(self, 'quickbooks_client_id_input'):
+                    self.quickbooks_client_id_input.setText(third_party["quickbooks"].get("client_id", ""))
+                    self.quickbooks_client_secret_input.setText(third_party["quickbooks"].get("client_secret", ""))
+                    self.quickbooks_realm_input.setText(third_party["quickbooks"].get("realm_id", ""))
+                
+                # Shopify
+                if "shopify" in third_party and hasattr(self, 'shopify_store_input'):
+                    self.shopify_store_input.setText(third_party["shopify"].get("store_url", ""))
+                    self.shopify_token_input.setText(third_party["shopify"].get("access_token", ""))
+                
+                # PayPal
+                if "paypal" in third_party and hasattr(self, 'paypal_client_id_input'):
+                    self.paypal_client_id_input.setText(third_party["paypal"].get("client_id", ""))
+                    self.paypal_secret_input.setText(third_party["paypal"].get("client_secret", ""))
+                
+                # Zendesk
+                if "zendesk" in third_party and hasattr(self, 'zendesk_subdomain_input'):
+                    self.zendesk_subdomain_input.setText(third_party["zendesk"].get("subdomain", ""))
+                    self.zendesk_email_input.setText(third_party["zendesk"].get("email", ""))
+                    self.zendesk_token_input.setText(third_party["zendesk"].get("api_token", ""))
+                
+                # ClickUp
+                if "clickup" in third_party and hasattr(self, 'clickup_token_input'):
+                    self.clickup_token_input.setText(third_party["clickup"].get("api_token", ""))
+                
+                # GitLab
+                if "gitlab" in third_party and hasattr(self, 'gitlab_token_input'):
+                    self.gitlab_token_input.setText(third_party["gitlab"].get("personal_access_token", ""))
+                    self.gitlab_url_input.setText(third_party["gitlab"].get("url", ""))
+                
+                # Airtable
+                if "airtable" in third_party and hasattr(self, 'airtable_token_input'):
+                    self.airtable_token_input.setText(third_party["airtable"].get("personal_access_token", ""))
+                
+                # Pipedrive
+                if "pipedrive" in third_party and hasattr(self, 'pipedrive_token_input'):
+                    self.pipedrive_token_input.setText(third_party["pipedrive"].get("api_token", ""))
+                
+                # Xero
+                if "xero" in third_party and hasattr(self, 'xero_client_id_input'):
+                    self.xero_client_id_input.setText(third_party["xero"].get("client_id", ""))
+                    self.xero_client_secret_input.setText(third_party["xero"].get("client_secret", ""))
+                
+                # WooCommerce
+                if "woocommerce" in third_party and hasattr(self, 'wc_store_url_input'):
+                    self.wc_store_url_input.setText(third_party["woocommerce"].get("store_url", ""))
+                    self.wc_key_input.setText(third_party["woocommerce"].get("consumer_key", ""))
+                    self.wc_secret_input.setText(third_party["woocommerce"].get("consumer_secret", ""))
+                
+                # Freshdesk
+                if "freshdesk" in third_party and hasattr(self, 'freshdesk_domain_input'):
+                    self.freshdesk_domain_input.setText(third_party["freshdesk"].get("domain", ""))
+                    self.freshdesk_key_input.setText(third_party["freshdesk"].get("api_key", ""))
+                
+                # Wrike
+                if "wrike" in third_party and hasattr(self, 'wrike_token_input'):
+                    self.wrike_token_input.setText(third_party["wrike"].get("permanent_access_token", ""))
+                
+                # Confluence
+                if "confluence" in third_party and hasattr(self, 'confluence_url_input'):
+                    self.confluence_url_input.setText(third_party["confluence"].get("url", ""))
+                    self.confluence_email_input.setText(third_party["confluence"].get("email", ""))
+                    self.confluence_token_input.setText(third_party["confluence"].get("api_token", ""))
+                
+                # Square
+                if "square" in third_party and hasattr(self, 'square_token_input'):
+                    self.square_token_input.setText(third_party["square"].get("access_token", ""))
+'''
+
+# Reemplazar el patrón de "teams" en _save_all_settings
+pattern_save = r'("teams": \{[^}]+\})'
+replacement_save = save_code.strip()
+content = re.sub(pattern_save, replacement_save, content, count=1)
+
+# Reemplazar el patrón de "teams" en _load_all_settings
+pattern_load = r'(if "teams" in third_party and hasattr\(self, \'teams_webhook_input\'\):[^}]+setText\(third_party\["teams"\]\.get\("webhook_url", ""\)\))'
+replacement_load = load_code.strip()
+content = re.sub(pattern_load, replacement_load, content, count=1, flags=re.DOTALL)
+
+# Guardar archivo
+with open('core/ui/views/settings_view.py', 'w', encoding='utf-8') as f:
+    f.write(content)
+
+print("✅ Archivo actualizado con las 15 APIs empresariales")

@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 import json
 import asyncio
+import time
 
 from core.logging_config import get_logger
 from core.SkillVault import vault
@@ -100,9 +101,37 @@ class MININAApiClient:
         try:
             # Ejecutar skill
             result = agent_manager.execute_skill(skill_name, context)
+            
+            # Publicar evento de skill ejecutada
+            from core.CortexBus import bus
+            asyncio.create_task(bus.publish(
+                "skill.EXECUTED",
+                {
+                    "skill_name": skill_name,
+                    "success": result.get("success", False),
+                    "context": context,
+                    "timestamp": time.time()
+                },
+                sender="MININAApiClient"
+            ))
+            
             return result
         except Exception as e:
             logger.error(f"Error ejecutando skill: {e}")
+            
+            # Publicar evento de error
+            from core.CortexBus import bus
+            asyncio.create_task(bus.publish(
+                "skill.ERROR",
+                {
+                    "skill_name": skill_name,
+                    "error": str(e),
+                    "context": context,
+                    "timestamp": time.time()
+                },
+                sender="MININAApiClient"
+            ))
+            
             return {"success": False, "error": str(e)}
             
     def get_works(self, category: Optional[str] = None) -> List[Dict[str, Any]]:

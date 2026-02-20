@@ -182,6 +182,24 @@ class WorksManager:
             self.works[work_id] = work
             self._save_index()
             
+            # Publicar evento de work completado
+            try:
+                import asyncio
+                from core.CortexBus import bus
+                asyncio.create_task(bus.publish(
+                    "work.COMPLETED",
+                    {
+                        "work_id": work_id,
+                        "work_name": filename,
+                        "category": category,
+                        "skill_name": skill_name,
+                        "timestamp": datetime.now().isoformat()
+                    },
+                    sender="WorksManager"
+                ))
+            except Exception as e:
+                logger.warning(f"Error publicando evento work.COMPLETED: {e}")
+            
             logger.info(f"[WORKS] Guardado: {filename} en {category} (ID: {work_id})")
             return work
             
@@ -223,6 +241,24 @@ class WorksManager:
             
             self.works[work_id] = work
             self._save_index()
+            
+            # Publicar evento de work completado
+            try:
+                import asyncio
+                from core.CortexBus import bus
+                asyncio.create_task(bus.publish(
+                    "work.COMPLETED",
+                    {
+                        "work_id": work_id,
+                        "work_name": filename,
+                        "category": category,
+                        "skill_name": skill_name,
+                        "timestamp": datetime.now().isoformat()
+                    },
+                    sender="WorksManager"
+                ))
+            except Exception as e:
+                logger.warning(f"Error publicando evento work.COMPLETED: {e}")
             
             logger.info(f"[WORKS] Guardado contenido: {filename} en {category} (ID: {work_id})")
             return work

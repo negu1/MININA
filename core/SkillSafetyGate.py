@@ -10,6 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# Importar validador de pureza
+sys.path.insert(0, str(Path(__file__).parent))
+from security.skill_purity_validator import SkillPurityValidator, PurityReport
+
 
 @dataclass
 class SafetyReport:
@@ -553,6 +557,29 @@ class SkillSafetyGate:
                 code_utf8 = skill_py.read_text(encoding="utf-8", errors='replace')
         code = code_utf8
 
+        # ===== VALIDACIÓN DE PUREZA =====
+        # Verificar que la skill es pura (no piensa, no llama otras skills, no escapa)
+        purity_validator = SkillPurityValidator()
+        purity_report = purity_validator.validate_skill_file(skill_py)
+        
+        if not purity_report.is_pure:
+            # Skill impura detectada - agregar violaciones a reasons
+            purity_reasons = [
+                f"[PUREZA] {v}" for v in purity_report.violations
+            ]
+            reasons.extend(purity_reasons)
+            
+            # Guardar reporte de pureza
+            try:
+                purity_report_path = extracted_dir / "purity_report.json"
+                purity_report_path.write_text(
+                    json.dumps(purity_report.to_dict(), ensure_ascii=False, indent=2),
+                    encoding="utf-8"
+                )
+            except Exception:
+                pass
+        
+        # ===== VALIDACIÓN DE SEGURIDAD AST =====
         reasons.extend(_ast_check(code, permissions))
 
         if reasons:

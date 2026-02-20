@@ -1,0 +1,152 @@
+MININA UI v3.0 - Reporte de Simulación
+================================================================================
+
+Total Tests: 56
+Passed: 53
+Failed: 3
+Success Rate: 94.6%
+
+RESULTADOS DETALLADOS:
+--------------------------------------------------------------------------------
+
+✅ PASSED: Import core.ui.views.orchestrator_view.OrchestratorView
+   Details: Clase OrchestratorView cargada correctamente
+
+✅ PASSED: Import core.ui.views.supervisor_view.SupervisorView
+   Details: Clase SupervisorView cargada correctamente
+
+✅ PASSED: Import core.ui.views.controller_view.ControllerView
+   Details: Clase ControllerView cargada correctamente
+
+✅ PASSED: Import core.ui.views.manager_view.ManagerView
+   Details: Clase ManagerView cargada correctamente
+
+✅ PASSED: Import core.ui.views.works_view.WorksView
+   Details: Clase WorksView cargada correctamente
+
+✅ PASSED: Import core.ui.views.skills_view.SkillsView
+   Details: Clase SkillsView cargada correctamente
+
+✅ PASSED: Import core.ui.views.settings_view.SettingsView
+   Details: Clase SettingsView cargada correctamente
+
+✅ PASSED: Import core.ui.api_client.MININAApiClient
+   Details: Clase MININAApiClient cargada correctamente
+
+✅ PASSED: Import core.ui.main_window.MainWindow
+   Details: Clase MainWindow cargada correctamente
+
+✅ PASSED: Vista OrchestratorView - estructura
+   Details: Métodos requeridos presentes
+
+✅ PASSED: Vista SupervisorView - estructura
+   Details: Métodos requeridos presentes
+
+✅ PASSED: Vista ControllerView - estructura
+   Details: Métodos requeridos presentes
+
+✅ PASSED: Vista ManagerView - estructura
+   Details: Métodos requeridos presentes
+
+✅ PASSED: Vista WorksView - estructura
+   Details: Métodos requeridos presentes
+
+✅ PASSED: Vista SkillsView - estructura
+   Details: Métodos requeridos presentes
+
+✅ PASSED: Vista SettingsView - estructura
+   Details: Métodos requeridos presentes
+
+✅ PASSED: Manual OrchestratorView._show_help_manual
+   Details: Método existe y es callable
+
+✅ PASSED: Manual SupervisorView._show_help_manual
+   Details: Método existe y es callable
+
+✅ PASSED: Manual ControllerView._show_help_manual
+   Details: Método existe y es callable
+
+✅ PASSED: Manual ManagerView._show_help_manual
+   Details: Método existe y es callable
+
+✅ PASSED: Manual WorksView._show_help_manual
+   Details: Método existe y es callable
+
+✅ PASSED: Manual SkillsView._show_help_manual
+   Details: Método existe y es callable
+
+❌ FAILED: Manual SettingsView._show_help_manual
+   Error: Método no encontrado
+
+✅ PASSED: API Client - health_check
+
+✅ PASSED: API Client - get_skills
+
+✅ PASSED: API Client - get_works
+
+✅ PASSED: API Client - save_skill
+
+✅ PASSED: API Client - delete_work
+
+✅ PASSED: API Client - execute_skill
+
+✅ PASSED: API Client - health_check()
+   Details: Retornó: True
+
+✅ PASSED: Backend - SkillVault
+   Details: 3 skills encontradas
+
+✅ PASSED: Backend - WorksManager
+   Details: 8 works encontrados
+
+✅ PASSED: Backend - MemoryCore
+   Details: MemoryCore inicializado
+
+✅ PASSED: Orquestador - process_objective
+   Details: Método disponible
+
+✅ PASSED: Skill Studio - _create_new_skill
+
+✅ PASSED: Skill Studio - _generate_skill_code
+
+✅ PASSED: Skill Studio - _save_skill_api
+
+✅ PASSED: Skill Studio - _run_sandbox_api
+
+✅ PASSED: Skill Studio - _send_chat_message
+
+✅ PASSED: Skill Studio - _add_chat_message
+
+✅ PASSED: Works - _load_works_from_api
+
+✅ PASSED: Works - _on_work_selected
+
+✅ PASSED: Works - _download_work
+
+✅ PASSED: Works - _delete_work
+
+✅ PASSED: Manager - _create_agents_panel
+
+✅ PASSED: Manager - _create_pools_panel
+
+✅ PASSED: Manager - _load_agents_table
+
+✅ PASSED: Manager - _create_pool_bar
+
+✅ PASSED: Settings - _create_section
+
+✅ PASSED: Settings - _create_local_api_card
+
+✅ PASSED: Settings - _create_api_card
+
+❌ FAILED: Settings - _create_status_card
+   Error: Método no encontrado
+
+❌ FAILED: Settings - _create_messaging_card
+   Error: Método no encontrado
+
+✅ PASSED: Settings - _show_install_guide
+
+✅ PASSED: Settings - _test_connections
+
+✅ PASSED: Settings - _save_settings

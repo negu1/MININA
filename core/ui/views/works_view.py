@@ -7,7 +7,8 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QPushButton, QListWidget, QListWidgetItem, 
     QFileDialog, QMessageBox, QComboBox,
-    QSplitter, QFrame, QTextEdit, QScrollArea
+    QSplitter, QFrame, QTextEdit, QScrollArea,
+    QDialog
 )
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPixmap, QImage
@@ -86,6 +87,25 @@ class WorksView(QWidget):
         """)
         header_layout.addWidget(header_text)
         header_layout.addStretch()
+        
+        # Botón de Ayuda
+        self.help_btn = QPushButton("❓ Ayuda")
+        self.help_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #4f46e5;
+            }
+        """)
+        self.help_btn.setToolTip("Ver manual de Works")
+        self.help_btn.clicked.connect(self._show_help_manual)
+        header_layout.addWidget(self.help_btn)
         
         self.connection_label = QLabel("🟡")
         self.connection_label.setStyleSheet("font-size: 12px;")
@@ -366,3 +386,109 @@ class WorksView(QWidget):
                 self.preview_content.setText("No hay archivo seleccionado")
             else:
                 QMessageBox.critical(self, "Error", "No se pudo eliminar el archivo")
+    
+    # Alias para compatibilidad con simulador
+    _download_work = _download_selected_api
+    _delete_work = _delete_selected_api
+                
+    def _show_help_manual(self):
+        """Mostrar manual de ayuda de Works"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("📖 Manual de Works - MININA v3.0")
+        dialog.setFixedSize(800, 500)
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #f8fafc;
+            }
+        """)
+        
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        title = QLabel("📖 Manual de Works")
+        title.setStyleSheet("""
+            font-size: 20px;
+            font-weight: bold;
+            color: #6366f1;
+            background: transparent;
+        """)
+        layout.addWidget(title)
+        
+        help_text = """
+        <h3>📦 ¿Qué es Works?</h3>
+        <p>Works es el <b>gestor de archivos</b> de MININA. Aquí encuentras todos los archivos
+        generados por las skills: documentos, imágenes, reportes, descargas, etc.</p>
+        
+        <h3>📂 Panel Izquierdo - Lista de Archivos</h3>
+        <ul>
+        <li><b>📦 Works:</b> Lista de todos los archivos generados</li>
+        <li><b>Categoría:</b> Filtra por tipo (Documentos, Imágenes, Datos, etc.)</li>
+        <li><b>🔄 Refrescar:</b> Actualiza la lista desde el servidor</li>
+        </ul>
+        
+        <h3>📄 Panel Derecho - Detalles</h3>
+        <ul>
+        <li><b>Información:</b> Nombre, tamaño, fecha, skill que lo creó</li>
+        <li><b>Vista previa:</b> Contenido del archivo (texto/imagen)</li>
+        </ul>
+        
+        <h3>🔘 Botones de Acción</h3>
+        <ul>
+        <li><b>💾 Descargar:</b> Guarda el archivo en tu computadora</li>
+        <li><b>📂 Abrir Ubicación:</b> Muestra la carpeta donde está guardado</li>
+        <li><b>🗑️ Eliminar:</b> Borra el archivo permanentemente</li>
+        </ul>
+        
+        <h3>📂 Categorías de Archivos</h3>
+        <ul>
+        <li><b>📄 Documentos:</b> PDFs, Word, TXT generados</li>
+        <li><b>🖼️ Imágenes:</b> PNG, JPG, capturas, gráficos</li>
+        <li><b>📊 Datos:</b> CSV, Excel, JSON, bases de datos</li>
+        <li><b>📥 Descargas:</b> Archivos descargados de internet</li>
+        <li><b>🔧 Código:</b> Scripts, archivos de código fuente</li>
+        <li><b>📦 Backup:</b> Copias de seguridad</li>
+        </ul>
+        
+        <p style='margin-top:20px;color:#666;'><i>💡 Consejo: Usa el filtro de categorías para encontrar archivos rápidamente.</i></p>
+        """
+        
+        text_edit = QTextEdit()
+        text_edit.setHtml(help_text)
+        text_edit.setReadOnly(True)
+        text_edit.setStyleSheet("""
+            QTextEdit {
+                background-color: #ffffff;
+                border: 2px solid #e2e8f0;
+                border-radius: 10px;
+                padding: 15px;
+                color: #1f293b;
+                font-size: 13px;
+                line-height: 1.6;
+            }
+        """)
+        layout.addWidget(text_edit)
+        
+        close_btn = QPushButton("✓ Entendido")
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 24px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #4f46e5;
+            }
+        """)
+        close_btn.clicked.connect(dialog.accept)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+        
+        dialog.exec_()

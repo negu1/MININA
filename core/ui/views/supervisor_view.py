@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QListWidget, QListWidgetItem,
     QGroupBox, QTextEdit, QFrame, QScrollArea,
     QComboBox, QTableWidget, QTableWidgetItem,
-    QHeaderView
+    QHeaderView, QMessageBox, QDialog
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -78,6 +78,25 @@ class SupervisorView(QWidget):
         """)
         header_layout.addWidget(header_text)
         header_layout.addStretch()
+        
+        # Botón de Ayuda
+        self.help_btn = QPushButton("❓ Ayuda")
+        self.help_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #4f46e5;
+            }
+        """)
+        self.help_btn.setToolTip("Ver manual del Supervisor")
+        self.help_btn.clicked.connect(self._show_help_manual)
+        header_layout.addWidget(self.help_btn)
         
         layout.addLayout(header_layout)
         
@@ -208,17 +227,20 @@ class SupervisorView(QWidget):
         return panel
         
     def _load_alerts(self):
-        """Cargar alertas de ejemplo"""
+        """Cargar alertas de ejemplo con colores claros brillantes que resaltan"""
         example_alerts = [
-            ("🔴 CRÍTICA", "Loop detectado en skill 'web_scraper'", "2 min ago"),
-            ("🟡 ADVERTENCIA", "Skill 'reporte_ventas' tomó 10min (est: 5)", "5 min ago"),
-            ("🔵 INFO", "Agente agent_001 iniciado correctamente", "10 min ago"),
-            ("🔵 INFO", "Pool CPU_INTENSIVE escalado a 6 agentes", "15 min ago"),
+            ("🔴 CRÍTICA", "Loop detectado en skill 'web_scraper'", "2 min ago", "#ff6b6b"),  # Rojo claro brillante
+            ("🟡 ADVERTENCIA", "Skill 'reporte_ventas' tomó 10min (est: 5)", "5 min ago", "#ffd93d"),  # Amarillo brillante
+            ("🔵 INFO", "Agente agent_001 iniciado correctamente", "10 min ago", "#6bcf7f"),  # Verde menta claro
+            ("🔵 INFO", "Pool CPU_INTENSIVE escalado a 6 agentes", "15 min ago", "#4dabf7"),  # Azul cielo brillante
         ]
         
-        for level, message, time in example_alerts:
+        for level, message, time, color in example_alerts:
             item = QListWidgetItem(f"{level} - {message}\n  {time}")
             item.setData(Qt.UserRole, {"level": level, "message": message, "time": time})
+            # Aplicar color CLARO BRILLANTE al texto para que resalte sobre cualquier fondo
+            item.setForeground(Qt.transparent)
+            item.setData(Qt.UserRole + 1, f"color: {color}; font-weight: bold; font-size: 13px;")
             self.alerts_list.addItem(item)
             
     def _load_logs(self):
@@ -280,3 +302,109 @@ class SupervisorView(QWidget):
     def _clear_logs(self):
         """Limpiar área de logs"""
         self.logs_area.clear()
+        
+    def _show_help_manual(self):
+        """Mostrar manual de ayuda del Supervisor en ventana horizontal con scroll"""
+        
+        # Crear ventana de diálogo personalizada
+        dialog = QDialog(self)
+        dialog.setWindowTitle("📖 Manual del Supervisor - MININA v3.0")
+        dialog.setFixedSize(800, 500)  # Horizontal: ancho > alto
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #f8fafc;
+            }
+        """)
+        
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        # Título
+        title = QLabel("📖 Manual del Supervisor")
+        title.setStyleSheet("""
+            font-size: 20px;
+            font-weight: bold;
+            color: #6366f1;
+            background: transparent;
+        """)
+        layout.addWidget(title)
+        
+        # Área de texto con scroll
+        help_text = """
+        <h3>🛡️ ¿Qué es el Supervisor?</h3>
+        <p>El Supervisor es el <b>centro de control de alertas y monitoreo</b> de MININA. 
+        Su función es vigilar todo lo que pasa en el sistema y avisarte cuando algo requiere tu atención.</p>
+        
+        <h3>🔔 ¿Qué hace?</h3>
+        <ul>
+        <li><b>Detecta problemas:</b> Identifica cuando una skill falla o tarda demasiado</li>
+        <li><b>Monitorea recursos:</b> Controla el uso de CPU, memoria y agentes</li>
+        <li><b>Alerta sobre anomalías:</b> Avisa si detecta comportamientos extraños</li>
+        <li><b>Registra actividad:</b> Guarda un historial de todo lo que pasa</li>
+        </ul>
+        
+        <h3>📊 Tipos de Alertas</h3>
+        <ul>
+        <li><span style='color:#ff6b6b'>🔴 CRÍTICA</span> - Problema grave que necesita acción inmediata</li>
+        <li><span style='color:#ffd93d'>🟡 ADVERTENCIA</span> - Algo está tardando más de lo normal</li>
+        <li><span style='color:#6bcf7f'>🔵 INFO</span> - Información general del sistema</li>
+        </ul>
+        
+        <h3>🔘 ¿Para qué sirven los botones?</h3>
+        <ul>
+        <li><b>Reconocer:</b> Marcar alerta como "vista" (sigue activa pero sabemos que la viste)</li>
+        <li><b>Resolver:</b> Eliminar alerta porque ya solucionaste el problema</li>
+        <li><b>Ver Detalles:</b> Mostrar información completa de la alerta seleccionada</li>
+        <li><b>Limpiar:</b> Borrar todas las alertas de la lista</li>
+        <li><b>Exportar:</b> Guardar los logs en un archivo para revisarlos después</li>
+        <li><b>Pausar/Reanudar:</b> Detener o continuar la actualización de logs en tiempo real</li>
+        <li><b>Scroll:</b> Bloquear o desbloquear el desplazamiento automático de logs</li>
+        </ul>
+        
+        <h3>📈 Contadores</h3>
+        <p>Los números debajo (🔴 0 🟡 0 🔵 0) muestran cuántas alertas hay de cada tipo.</p>
+        
+        <p style='margin-top:20px;color:#666;'><i>💡 Consejo: Revisa regularmente el Supervisor para mantener el sistema saludable.</i></p>
+        """
+        
+        text_edit = QTextEdit()
+        text_edit.setHtml(help_text)
+        text_edit.setReadOnly(True)
+        text_edit.setStyleSheet("""
+            QTextEdit {
+                background-color: #ffffff;
+                border: 2px solid #e2e8f0;
+                border-radius: 10px;
+                padding: 15px;
+                color: #1f293b;
+                font-size: 13px;
+                line-height: 1.6;
+            }
+        """)
+        layout.addWidget(text_edit)
+        
+        # Botón cerrar
+        close_btn = QPushButton("✓ Entendido")
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 24px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #4f46e5;
+            }
+        """)
+        close_btn.clicked.connect(dialog.accept)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+        
+        dialog.exec_()

@@ -13,11 +13,13 @@ from PyQt5.QtGui import QIcon, QFont
 
 from core.ui.views.orchestrator_view import OrchestratorView
 from core.ui.views.supervisor_view import SupervisorView
-from core.ui.views.controller_view import ControllerView
+from core.ui.views.controller_view_v2 import ControllerViewV2
 from core.ui.views.manager_view import ManagerView
 from core.ui.views.works_view import WorksView
+from core.ui.views.jobs_view import JobsView
 from core.ui.views.skills_view import SkillsView
-from core.ui.views.settings_view import SettingsView
+from core.ui.views.settings_view_v2 import SettingsViewV2
+from core.ui.views.external_skills_view import ExternalSkillsEvaluatorView
 
 
 class MainWindow(QMainWindow):
@@ -98,85 +100,144 @@ class MainWindow(QMainWindow):
             }}
 
             QLineEdit, QTextEdit {{
-                background-color: rgba(15, 23, 42, 0.85);
-                border: 1px solid rgba(148, 163, 184, 0.25);
-                border-radius: 12px;
+                background-color: #ffffff;
+                border: 2px solid #6366f1;
+                border-radius: 8px;
                 padding: 10px 12px;
-                color: #e5e7eb;
-                selection-background-color: rgba(99, 102, 241, 0.55);
+                color: #1f2937;
+                font-size: 14px;
+                selection-background-color: #6366f1;
+                selection-color: #ffffff;
             }}
             QLineEdit:focus, QTextEdit:focus {{
-                border: 1px solid rgba(99, 102, 241, 0.8);
+                border: 2px solid #4f46e5;
+                background-color: #ffffff;
+            }}
+            QLineEdit::placeholder, QTextEdit::placeholder {{
+                color: #6b7280;
             }}
 
             QComboBox {{
-                background-color: rgba(15, 23, 42, 0.85);
-                border: 1px solid rgba(148, 163, 184, 0.25);
-                border-radius: 10px;
-                padding: 6px 10px;
-                color: #e5e7eb;
+                background-color: #ffffff;
+                border: 2px solid #6366f1;
+                border-radius: 8px;
+                padding: 8px 12px;
+                color: #1f2937;
+                font-size: 14px;
+                min-height: 24px;
             }}
             QComboBox:hover {{
-                border: 1px solid rgba(99, 102, 241, 0.8);
+                border: 2px solid #4f46e5;
             }}
             QComboBox::drop-down {{
                 border: none;
-                width: 26px;
+                width: 30px;
             }}
             QComboBox QAbstractItemView {{
-                background-color: #0f172a;
-                color: #e5e7eb;
-                selection-background-color: rgba(99, 102, 241, 0.55);
-                border: 1px solid rgba(148, 163, 184, 0.18);
+                background-color: #ffffff;
+                color: #1f2937;
+                selection-background-color: #6366f1;
+                selection-color: #ffffff;
+                border: 2px solid #6366f1;
                 outline: 0;
+                padding: 4px;
             }}
 
             QPushButton {{
-                background-color: rgba(30, 41, 59, 0.65);
-                border: 1px solid rgba(148, 163, 184, 0.20);
-                padding: 10px 14px;
-                border-radius: 12px;
-                font-weight: 600;
+                background-color: #6366f1;
+                border: 2px solid #4f46e5;
+                padding: 10px 18px;
+                border-radius: 10px;
+                font-weight: bold;
+                color: #ffffff;
+                font-size: 13px;
             }}
             QPushButton:hover {{
-                background-color: rgba(51, 65, 85, 0.7);
-                border: 1px solid rgba(99, 102, 241, 0.65);
+                background-color: #4f46e5;
+                border: 2px solid #4338ca;
+            }}
+            QPushButton:pressed {{
+                background-color: #4338ca;
             }}
             QPushButton:disabled {{
-                background-color: rgba(30, 41, 59, 0.35);
-                color: rgba(229, 231, 235, 0.45);
-                border: 1px solid rgba(148, 163, 184, 0.10);
+                background-color: #9ca3af;
+                color: #6b7280;
+                border: 2px solid #9ca3af;
             }}
 
             QGroupBox {{
-                background-color: rgba(15, 23, 42, 0.55);
-                border: 1px solid rgba(148, 163, 184, 0.16);
-                border-radius: 16px;
-                margin-top: 12px;
-                padding: 14px;
+                background-color: #ffffff;
+                border: 2px solid #6366f1;
+                border-radius: 12px;
+                margin-top: 16px;
+                padding: 16px;
+                color: #1f2937;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
-                left: 14px;
-                padding: 0 8px;
-                color: rgba(226, 232, 240, 0.85);
-                font-weight: 700;
+                left: 16px;
+                padding: 4px 12px;
+                color: #6366f1;
+                font-weight: bold;
+                font-size: 14px;
+                background-color: #ffffff;
+                border-radius: 4px;
             }}
 
             QTableWidget {{
-                background-color: rgba(15, 23, 42, 0.55);
-                border: 1px solid rgba(148, 163, 184, 0.16);
-                border-radius: 14px;
-                gridline-color: rgba(148, 163, 184, 0.10);
-                selection-background-color: rgba(99, 102, 241, 0.35);
-                selection-color: #e5e7eb;
+                background-color: #ffffff;
+                border: 2px solid #6366f1;
+                border-radius: 12px;
+                gridline-color: #e5e7eb;
+                selection-background-color: #6366f1;
+                selection-color: #ffffff;
+                color: #1f2937;
+                font-size: 13px;
+                alternate-background-color: #f3f4f6;
             }}
-            QHeaderView::section {{
-                background-color: rgba(30, 41, 59, 0.7);
-                color: rgba(226, 232, 240, 0.9);
-                padding: 8px;
+            QTableWidget::item {{
+                padding: 12px 8px;
+                border-bottom: 1px solid #e5e7eb;
+                min-height: 40px;
+            }}
+            QTableWidget::item:selected {{
+                background-color: #6366f1;
+                color: #ffffff;
+            }}
+            QTableWidget QHeaderView::section {{
+                background-color: #6366f1;
+                color: #ffffff;
+                padding: 12px 8px;
                 border: none;
-                border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+                font-weight: bold;
+                font-size: 13px;
+                min-height: 44px;
+            }}
+
+            QListWidget {{
+                background-color: #ffffff;
+                border: 2px solid #6366f1;
+                border-radius: 12px;
+                padding: 8px;
+                color: #1f2937;
+                font-size: 13px;
+                outline: none;
+            }}
+            QListWidget::item {{
+                padding: 10px 12px;
+                border-radius: 6px;
+                margin: 2px 4px;
+                color: #1f2937;
+            }}
+            QListWidget::item:selected {{
+                background-color: #6366f1;
+                color: #ffffff;
+            }}
+            QListWidget::item:hover {{
+                background-color: #e0e7ff;
+            }}
+            QListWidget::item:selected:hover {{
+                background-color: #4f46e5;
             }}
             
             #navigationRail {{
@@ -188,8 +249,8 @@ class MainWindow(QMainWindow):
             
             QPushButton#nav_orchestrator, QPushButton#nav_manager,
             QPushButton#nav_supervisor, QPushButton#nav_controller,
-            QPushButton#nav_works, QPushButton#nav_skills,
-            QPushButton#nav_settings {{
+            QPushButton#nav_jobs, QPushButton#nav_works, QPushButton#nav_skills,
+            QPushButton#nav_external_skills, QPushButton#nav_settings {{
                 background-color: transparent;
                 border: 2px solid transparent;
                 border-radius: 16px;
@@ -199,16 +260,16 @@ class MainWindow(QMainWindow):
             
             QPushButton#nav_orchestrator:hover, QPushButton#nav_manager:hover,
             QPushButton#nav_supervisor:hover, QPushButton#nav_controller:hover,
-            QPushButton#nav_works:hover, QPushButton#nav_skills:hover,
-            QPushButton#nav_settings:hover {{
+            QPushButton#nav_jobs:hover, QPushButton#nav_works:hover, QPushButton#nav_skills:hover,
+            QPushButton#nav_external_skills:hover, QPushButton#nav_settings:hover {{
                 background-color: rgba(255, 255, 255, 0.1);
                 border: 2px solid {self.PRIMARY_COLOR};
             }}
             
             QPushButton#nav_orchestrator:checked, QPushButton#nav_manager:checked,
             QPushButton#nav_supervisor:checked, QPushButton#nav_controller:checked,
-            QPushButton#nav_works:checked, QPushButton#nav_skills:checked,
-            QPushButton#nav_settings:checked {{
+            QPushButton#nav_jobs:checked, QPushButton#nav_works:checked, QPushButton#nav_skills:checked,
+            QPushButton#nav_external_skills:checked, QPushButton#nav_settings:checked {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 {self.PRIMARY_COLOR},
                     stop:1 {self.SECONDARY_COLOR});
@@ -297,8 +358,10 @@ class MainWindow(QMainWindow):
             ("manager", "⚡", "Agentes"),
             ("supervisor", "🛡️", "Alertas"),
             ("controller", "📜", "Reglas"),
+            ("jobs", "🚀", "Trabajos"),
             ("works", "📦", "Works"),
             ("skills", "🔧", "Skills"),
+            ("external_skills", "🧪", "Skills Externas"),
             ("settings", "⚙️", "Configuración"),
         ]
         
@@ -369,10 +432,12 @@ class MainWindow(QMainWindow):
             "orchestrator": OrchestratorView(),
             "manager": ManagerView(),
             "supervisor": SupervisorView(),
-            "controller": ControllerView(),
+            "controller": ControllerViewV2(),
+            "jobs": JobsView(),
             "works": WorksView(),
             "skills": SkillsView(),
-            "settings": SettingsView(),
+            "external_skills": ExternalSkillsEvaluatorView(),
+            "settings": SettingsViewV2(),
         }
         
         for view in self.views.values():
