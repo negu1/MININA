@@ -42,10 +42,11 @@ class AgentLifecycleManager:
             self.skills_dir = self.data_dir / "skills"
         self.skills_dir.mkdir(parents=True, exist_ok=True)
         
-        self.user_skills_dir = self.data_dir / "skills_user"
+        self.user_skills_dir = Path(__file__).resolve().parent.parent / "skills_user"
+        if not self.user_skills_dir.exists():
+            self.user_skills_dir = self.data_dir / "skills_user"
         self.user_skills_dir.mkdir(parents=True, exist_ok=True)
         
-        # Usar el mismo live_dir que SkillVault (ruta relativa)
         self.live_dir = self.data_dir / "skills_vault" / "live"
         self.live_dir.mkdir(parents=True, exist_ok=True)
         
@@ -791,9 +792,16 @@ def _execute_skill_wrapper(skill_path: str, context: Dict[str, Any], session_id:
         sys.path = original_syspath
         
         # 9. Copiar archivos generados del sandbox al directorio de salida permanente
-        if sandbox_dir and (sandbox_dir / "output").exists():
+        sandbox_dir_p = None
+        try:
+            if sandbox_dir:
+                sandbox_dir_p = Path(sandbox_dir)
+        except Exception:
+            sandbox_dir_p = None
+
+        if sandbox_dir_p is not None and (sandbox_dir_p / "output").exists():
             try:
-                sandbox_output = sandbox_dir / "output"
+                sandbox_output = sandbox_dir_p / "output"
                 # Usar output_dir del contexto o default relativo al skill_dir
                 final_output = Path(context.get("output_dir", str(Path(skill_dir).parent / "output")))
                 final_output.mkdir(parents=True, exist_ok=True)
@@ -808,10 +816,15 @@ def _execute_skill_wrapper(skill_path: str, context: Dict[str, Any], session_id:
                 logger.error(f"Error copiando archivos del sandbox: {e}")
         
         # 10. Limpiar sandbox temporal (solo si es un dir temporal)
-        if sandbox_dir and sandbox_dir != skill_dir:
+        try:
+            skill_dir_p = Path(skill_dir)
+        except Exception:
+            skill_dir_p = None
+
+        if sandbox_dir_p is not None and skill_dir_p is not None and sandbox_dir_p != skill_dir_p:
             try:
-                shutil.rmtree(sandbox_dir, ignore_errors=True)
-                logger.info(f"Sandbox limpiado: {sandbox_dir}")
+                shutil.rmtree(str(sandbox_dir_p), ignore_errors=True)
+                logger.info(f"Sandbox limpiado: {sandbox_dir_p}")
             except Exception as e:
                 logger.error(f"Error limpiando sandbox: {e}")
         

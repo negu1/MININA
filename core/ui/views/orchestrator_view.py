@@ -356,6 +356,7 @@ class OrchestratorView(QWidget):
                 background-color: rgba(2, 6, 23, 0.45);
                 border: 1px solid rgba(148, 163, 184, 0.16);
                 border-radius: 16px; padding: 12px;
+                color: rgba(226, 232, 240, 0.92);
             }
         """)
         layout.addWidget(self.chat_history)
@@ -369,11 +370,12 @@ class OrchestratorView(QWidget):
         self.objective_input.setMaximumHeight(80)
         self.objective_input.setStyleSheet("""
             QTextEdit {
-                background-color: rgba(15, 23, 42, 0.85);
-                border: 1px solid rgba(148, 163, 184, 0.18);
+                background-color: #ffffff;
+                color: #0f172a;
+                border: 2px solid rgba(148, 163, 184, 0.45);
                 border-radius: 16px; padding: 12px;
             }
-            QTextEdit:focus { border: 1px solid rgba(99, 102, 241, 0.8); }
+            QTextEdit:focus { border: 2px solid rgba(99, 102, 241, 0.9); }
         """)
         layout.addWidget(self.objective_input)
         

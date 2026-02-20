@@ -281,13 +281,14 @@ class SkillsView(QWidget):
         self.chat_input.setMaximumHeight(60)
         self.chat_input.setStyleSheet("""
             QTextEdit {
-                background-color: rgba(15, 23, 42, 0.85);
-                border: 1px solid rgba(148, 163, 184, 0.18);
+                background-color: #ffffff;
+                color: #0f172a;
+                border: 2px solid rgba(148, 163, 184, 0.45);
                 border-radius: 16px;
                 padding: 12px;
             }
             QTextEdit:focus {
-                border: 1px solid rgba(99, 102, 241, 0.8);
+                border: 2px solid rgba(99, 102, 241, 0.9);
             }
         """)
         layout.addWidget(self.chat_input)
@@ -364,11 +365,8 @@ class SkillsView(QWidget):
                 background-color: rgba(15, 23, 42, 0.85);
                 border: 1px solid rgba(148, 163, 184, 0.18);
                 border-radius: 12px;
-                padding: 8px 10px;
-                color: #e5e7eb;
-            }
-            QTextEdit:focus {
-                border: 1px solid rgba(99, 102, 241, 0.8);
+                padding: 6px;
+                color: rgba(226, 232, 240, 0.92);
             }
         """)
         info_layout.addWidget(self.skill_name_input)
@@ -426,17 +424,18 @@ def procesar_datos(context):
         self.code_editor.setStyleSheet("""
             QTextEdit {
                 background-color: #1e1e1e;
-                color: #d4d4d4;
-                border: 1px solid #3e3e3e;
-                border-radius: 8px;
+                color: #ffffff;
+                border: 2px solid #000000;
+                border-radius: 12px;
                 padding: 12px;
                 selection-background-color: #264f78;
-                line-height: 1.5;
+            }
+            QTextEdit:focus {
+                border: 2px solid #6366f1;
             }
             QScrollBar:vertical {
-                background: #1e1e1e;
-                width: 12px;
-                border-radius: 6px;
+                background: transparent;
+                width: 8px;
             }
             QScrollBar::handle:vertical {
                 background: #424242;
@@ -506,11 +505,8 @@ def procesar_datos(context):
                 background-color: rgba(15, 23, 42, 0.85);
                 border: 1px solid rgba(148, 163, 184, 0.18);
                 border-radius: 12px;
-                padding: 10px;
-                color: #e5e7eb;
-            }
-            QTextEdit:focus {
-                border: 1px solid rgba(99, 102, 241, 0.8);
+                padding: 8px;
+                color: rgba(226, 232, 240, 0.92);
             }
         """)
         context_layout.addWidget(self.context_input)
@@ -542,7 +538,7 @@ def procesar_datos(context):
                 border: 1px solid rgba(148, 163, 184, 0.16);
                 border-radius: 12px;
                 padding: 10px;
-                color: #e5e7eb;
+                color: rgba(226, 232, 240, 0.92);
             }
         """)
         results_layout.addWidget(self.result_output)

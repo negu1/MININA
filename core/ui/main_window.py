@@ -8,8 +8,13 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QStackedWidget, QFrame,
     QSystemTrayIcon, QMenu, QApplication
 )
-from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtCore import Qt, QSize, QTimer
 from PyQt5.QtGui import QIcon, QFont
+
+import sys
+import os
+import subprocess
+from pathlib import Path
 
 from core.ui.views.orchestrator_view import OrchestratorView
 from core.ui.views.supervisor_view import SupervisorView
@@ -20,6 +25,10 @@ from core.ui.views.jobs_view import JobsView
 from core.ui.views.skills_view import SkillsView
 from core.ui.views.settings_view_v2 import SettingsViewV2
 from core.ui.views.external_skills_view import ExternalSkillsEvaluatorView
+from core.ui.views.dashboard_view import DashboardView
+from core.ui.views.security_view import SecurityView
+from core.ui.views.monitoring_view import SystemMonitoringView
+from core.ui.views.telegram_bot_view import TelegramBotView
 
 
 class MainWindow(QMainWindow):
@@ -247,6 +256,8 @@ class MainWindow(QMainWindow):
                 border: none;
             }}
             
+            QPushButton#nav_dashboard, QPushButton#nav_security,
+            QPushButton#nav_monitoring, QPushButton#nav_telegram,
             QPushButton#nav_orchestrator, QPushButton#nav_manager,
             QPushButton#nav_supervisor, QPushButton#nav_controller,
             QPushButton#nav_jobs, QPushButton#nav_works, QPushButton#nav_skills,
@@ -258,6 +269,8 @@ class MainWindow(QMainWindow):
                 padding: 8px;
             }}
             
+            QPushButton#nav_dashboard:hover, QPushButton#nav_security:hover,
+            QPushButton#nav_monitoring:hover, QPushButton#nav_telegram:hover,
             QPushButton#nav_orchestrator:hover, QPushButton#nav_manager:hover,
             QPushButton#nav_supervisor:hover, QPushButton#nav_controller:hover,
             QPushButton#nav_jobs:hover, QPushButton#nav_works:hover, QPushButton#nav_skills:hover,
@@ -266,6 +279,8 @@ class MainWindow(QMainWindow):
                 border: 2px solid {self.PRIMARY_COLOR};
             }}
             
+            QPushButton#nav_dashboard:checked, QPushButton#nav_security:checked,
+            QPushButton#nav_monitoring:checked, QPushButton#nav_telegram:checked,
             QPushButton#nav_orchestrator:checked, QPushButton#nav_manager:checked,
             QPushButton#nav_supervisor:checked, QPushButton#nav_controller:checked,
             QPushButton#nav_jobs:checked, QPushButton#nav_works:checked, QPushButton#nav_skills:checked,
@@ -354,6 +369,10 @@ class MainWindow(QMainWindow):
         # Botones de navegación con iconos modernos
         self.nav_buttons = {}
         nav_items = [
+            ("dashboard", "📊", "Dashboard"),
+            ("security", "🛡️", "Seguridad"),
+            ("monitoring", "📈", "Monitoreo"),
+            ("telegram", "💬", "Telegram"),
             ("orchestrator", "🎯", "Orquestador"),
             ("manager", "⚡", "Agentes"),
             ("supervisor", "🛡️", "Alertas"),
@@ -397,7 +416,7 @@ class MainWindow(QMainWindow):
         self.refresh_btn = QPushButton("🔄")
         self.refresh_btn.setObjectName("nav_refresh")
         self.refresh_btn.setFixedSize(50, 50)
-        self.refresh_btn.setToolTip("Actualizar todas las vistas")
+        self.refresh_btn.setToolTip("Actualizar vista actual")
         self.refresh_btn.setCursor(Qt.PointingHandCursor)
         self.refresh_btn.setStyleSheet(f"""
             QPushButton#nav_refresh {{
@@ -415,8 +434,52 @@ class MainWindow(QMainWindow):
                 background-color: rgba(99, 102, 241, 0.5);
             }}
         """)
-        self.refresh_btn.clicked.connect(self._refresh_all_views)
+        self.refresh_btn.clicked.connect(self._refresh_current_view)
         layout.addWidget(self.refresh_btn, alignment=Qt.AlignCenter)
+
+        layout.addSpacing(10)
+
+        self.restart_btn = QPushButton("🔁")
+        self.restart_btn.setObjectName("nav_restart")
+        self.restart_btn.setFixedSize(50, 50)
+        self.restart_btn.setToolTip("Reiniciar MININA")
+        self.restart_btn.setCursor(Qt.PointingHandCursor)
+        self.restart_btn.setStyleSheet(f"""
+            QPushButton#nav_restart {{
+                background-color: rgba(255, 255, 255, 0.05);
+                border: 2px solid rgba(245, 158, 11, 0.9);
+                border-radius: 25px;
+                color: {self.TEXT_LIGHT};
+                font-size: 20px;
+            }}
+            QPushButton#nav_restart:hover {{
+                background-color: rgba(245, 158, 11, 0.18);
+            }}
+        """)
+        self.restart_btn.clicked.connect(self._restart_minina)
+        layout.addWidget(self.restart_btn, alignment=Qt.AlignCenter)
+
+        layout.addSpacing(10)
+
+        self.shutdown_btn = QPushButton("⏻")
+        self.shutdown_btn.setObjectName("nav_shutdown")
+        self.shutdown_btn.setFixedSize(50, 50)
+        self.shutdown_btn.setToolTip("Apagar MININA")
+        self.shutdown_btn.setCursor(Qt.PointingHandCursor)
+        self.shutdown_btn.setStyleSheet(f"""
+            QPushButton#nav_shutdown {{
+                background-color: rgba(255, 255, 255, 0.05);
+                border: 2px solid rgba(239, 68, 68, 0.9);
+                border-radius: 25px;
+                color: {self.TEXT_LIGHT};
+                font-size: 20px;
+            }}
+            QPushButton#nav_shutdown:hover {{
+                background-color: rgba(239, 68, 68, 0.18);
+            }}
+        """)
+        self.shutdown_btn.clicked.connect(self._shutdown_minina)
+        layout.addWidget(self.shutdown_btn, alignment=Qt.AlignCenter)
         
         layout.addStretch()
         
@@ -429,6 +492,10 @@ class MainWindow(QMainWindow):
         
         # Crear y añadir vistas
         self.views = {
+            "dashboard": DashboardView(),
+            "security": SecurityView(),
+            "monitoring": SystemMonitoringView(),
+            "telegram": TelegramBotView(),
             "orchestrator": OrchestratorView(),
             "manager": ManagerView(),
             "supervisor": SupervisorView(),
@@ -443,9 +510,9 @@ class MainWindow(QMainWindow):
         for view in self.views.values():
             stack.addWidget(view)
             
-        # Mostrar orquestador por defecto
-        self._current_view = "orchestrator"
-        self.nav_buttons["orchestrator"].setChecked(True)
+        # Mostrar dashboard por defecto
+        self._current_view = "dashboard"
+        self.nav_buttons["dashboard"].setChecked(True)
         
         return stack
         
@@ -454,6 +521,14 @@ class MainWindow(QMainWindow):
         # Desmarcar botón anterior
         if self._current_view in self.nav_buttons:
             self.nav_buttons[self._current_view].setChecked(False)
+
+        # Desactivar vista anterior (para pausar timers / polling)
+        try:
+            prev_view = self.views.get(self._current_view)
+            if prev_view is not None and hasattr(prev_view, "on_deactivated"):
+                prev_view.on_deactivated()
+        except Exception:
+            pass
             
         # Marcar nuevo botón
         self.nav_buttons[view_id].setChecked(True)
@@ -478,37 +553,79 @@ class MainWindow(QMainWindow):
         """Obtener instancia de una vista por id."""
         return self.views.get(view_id)
 
-    def _refresh_all_views(self):
-        """Actualizar/recargar todas las vistas del sistema."""
-        from PyQt5.QtWidgets import QApplication
-        
+    def _refresh_current_view(self):
+        """Actualizar/recargar la vista actual."""
         # Cambiar cursor a espera
         QApplication.setOverrideCursor(Qt.WaitCursor)
         
         try:
-            # Recargar cada vista si tiene método de refresh
-            refresh_methods = {
-                "orchestrator": lambda v: v.on_activated() if hasattr(v, "on_activated") else None,
-                "manager": lambda v: v.on_activated() if hasattr(v, "on_activated") else None,
-                "supervisor": lambda v: v.on_activated() if hasattr(v, "on_activated") else None,
-                "controller": lambda v: self._refresh_controller_view(v),
-                "works": lambda v: v.on_activated() if hasattr(v, "on_activated") else None,
-                "skills": lambda v: self._refresh_skills_view(v),
-                "settings": lambda v: v.on_activated() if hasattr(v, "on_activated") else None,
-            }
-            
-            for view_id, view in self.views.items():
-                try:
-                    if view_id in refresh_methods:
-                        refresh_methods[view_id](view)
-                except Exception as e:
-                    print(f"Error actualizando {view_id}: {e}")
-            
-            # Forzar actualización visual
+            view = self.views.get(self._current_view)
+            if view is None:
+                return
+
+            if self._current_view == "controller":
+                self._refresh_controller_view(view)
+            elif self._current_view == "skills":
+                self._refresh_skills_view(view)
+            else:
+                if hasattr(view, "_refresh_data"):
+                    try:
+                        view._refresh_data()
+                    except Exception:
+                        pass
+                elif hasattr(view, "on_activated"):
+                    view.on_activated()
+
             self.content_area.update()
-            
+
         finally:
             QApplication.restoreOverrideCursor()
+
+    def _shutdown_minina(self):
+        try:
+            try:
+                if hasattr(self, "tray_icon") and self.tray_icon is not None:
+                    self.tray_icon.hide()
+            except Exception:
+                pass
+
+            try:
+                self.hide()
+            except Exception:
+                pass
+
+            try:
+                self.close()
+            except Exception:
+                pass
+
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()
+        except Exception:
+            pass
+
+    def _restart_minina(self):
+        try:
+            root = Path(__file__).resolve().parents[2]
+            launcher = root / "iniciar_minina.py"
+            if launcher.exists():
+                creationflags = 0
+                try:
+                    if os.name == "nt":
+                        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+                except Exception:
+                    creationflags = 0
+
+                subprocess.Popen(
+                    [sys.executable, str(launcher)],
+                    cwd=str(root),
+                    creationflags=creationflags,
+                )
+        except Exception:
+            pass
+
+        QTimer.singleShot(350, self._shutdown_minina)
     
     def _refresh_controller_view(self, view):
         """Refrescar vista de Controller (recargar policy settings)"""
@@ -543,6 +660,24 @@ class MainWindow(QMainWindow):
     def _setup_tray_icon(self):
         """Configurar icono en system tray con logo de gato"""
         self.tray_icon = QSystemTrayIcon(self)
+        
+        # Crear icono simple (pixmap con emoji)
+        from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
+        from PyQt5.QtCore import Qt
+        
+        # Crear pixmap de 64x64 con color de fondo
+        pixmap = QPixmap(64, 64)
+        pixmap.fill(QColor("#6366f1"))
+        
+        # Pintar emoji de gato
+        painter = QPainter(pixmap)
+        painter.setPen(QColor("#ffffff"))
+        painter.setFont(QFont("Segoe UI", 36))
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, "🐱")
+        painter.end()
+        
+        icon = QIcon(pixmap)
+        self.tray_icon.setIcon(icon)
         
         # Menú del tray estilizado
         tray_menu = QMenu()

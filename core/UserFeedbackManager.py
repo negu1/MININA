@@ -29,9 +29,10 @@ class UserFeedbackManager:
         while self._is_running:
             await asyncio.sleep(30)
             idle_time = datetime.now() - self._last_interaction
-            if idle_time > timedelta(minutes=5):
-                if int(idle_time.total_seconds()) % 300 < 30:
-                    await self.speak_async("Estoy activa. Di un comando tipo: 'usa skill web_browser example.com'", priority="low")
+            # Comentado: mensaje de 'Estoy activa' eliminado a petición del usuario
+            # if idle_time > timedelta(minutes=5):
+            #     if int(idle_time.total_seconds()) % 300 < 30:
+            #         await self.speak_async("Estoy activa. Di un comando tipo: 'usa skill web_browser example.com'", priority="low")
 
     def _on_user_interaction(self, event: Dict[str, Any]):
         self._last_interaction = datetime.now()

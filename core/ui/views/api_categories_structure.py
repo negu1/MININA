@@ -44,6 +44,40 @@ API_CATEGORIES = {
                 "fields": [
                     {"name": "api_key", "label": "API Key", "type": "password", "placeholder": "sk-ant-...", "required": True}
                 ]
+            },
+            "gemini": {
+                "name": "Google Gemini",
+                "icon": "🔮",
+                "description": "Modelos multimodales de Google AI",
+                "fields": [
+                    {"name": "api_key", "label": "API Key", "type": "password", "placeholder": "AIzaSy...", "required": True}
+                ]
+            },
+            "ollama": {
+                "name": "Ollama (Local)",
+                "icon": "🦙",
+                "description": "Modelos locales - Llama, Mistral, CodeLlama",
+                "fields": [
+                    {"name": "base_url", "label": "Base URL", "type": "text", "placeholder": "http://localhost:11434", "required": False}
+                ]
+            },
+            "qwen": {
+                "name": "Alibaba Qwen",
+                "icon": "🌏",
+                "description": "Qwen models - Multilingual AI",
+                "fields": [
+                    {"name": "api_key", "label": "API Key", "type": "password", "placeholder": "sk-...", "required": True},
+                    {"name": "base_url", "label": "Base URL (opcional)", "type": "text", "placeholder": "https://dashscope.aliyuncs.com", "required": False}
+                ]
+            },
+            "phi4": {
+                "name": "Microsoft Phi-4",
+                "icon": "🪟",
+                "description": "Microsoft Phi-4 via Azure/Ollama",
+                "fields": [
+                    {"name": "api_key", "label": "Azure API Key (opcional)", "type": "password", "placeholder": "...", "required": False},
+                    {"name": "base_url", "label": "Endpoint (opcional)", "type": "text", "placeholder": "http://localhost:11434", "required": False}
+                ]
             }
         }
     },

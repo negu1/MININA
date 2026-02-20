@@ -4,6 +4,8 @@ import logging
 import os
 import re
 import time
+import hmac
+import hashlib
 from pathlib import Path
 import importlib.util
 from dataclasses import dataclass
@@ -88,6 +90,12 @@ class TelegramBotService:
 
         self._myskills_offset: Dict[int, int] = {}
 
+        # Seguridad HIGH: aprobación + PIN
+        self._pending_security_actions: Dict[str, Dict[str, Any]] = {}
+        self._waiting_pin_token: Dict[int, str] = {}
+        self._pin_path = Path(__file__).resolve().parent.parent / "data" / "bot_pin.json"
+        self._admin_pin_path = Path(__file__).resolve().parent.parent / "data" / "admin_pin.json"
+
         bus.subscribe("user.SPEAK", self._on_user_speak)
         bus.subscribe("user.UI_MESSAGE", self._on_user_ui_message)
         bus.subscribe("skill.RETRY_AVAILABLE", self._on_retry_available)
@@ -104,6 +112,8 @@ class TelegramBotService:
         self.app.add_handler(CommandHandler("skills", self._cmd_skills))
         self.app.add_handler(CommandHandler("status", self._cmd_status))
         self.app.add_handler(CommandHandler("admin", self._cmd_admin))
+        self.app.add_handler(CommandHandler("setadminpin", self._cmd_setadminpin))
+        self.app.add_handler(CommandHandler("setpin", self._cmd_setpin))
         self.app.add_handler(CommandHandler("vault", self._cmd_vault))
         self.app.add_handler(CommandHandler("builder", self._cmd_builder))
         self.app.add_handler(CallbackQueryHandler(self._on_callback))
@@ -112,6 +122,10 @@ class TelegramBotService:
 
         await self.app.initialize()
         await self.app.start()
+        try:
+            await self.app.bot.delete_webhook(drop_pending_updates=True)
+        except Exception:
+            pass
         await self.app.updater.start_polling(drop_pending_updates=True)
 
         logger.info("Telegram bot started")
@@ -191,16 +205,58 @@ class TelegramBotService:
         except Exception:
             pin = ""
 
-        expected = (os.environ.get("MIIA_ADMIN_PIN") or "").strip()
-        if not expected:
-            await context.bot.send_message(chat_id=chat_id, text="Admin PIN no configurado (MIIA_ADMIN_PIN).")
-            return
-        if pin != expected:
-            await context.bot.send_message(chat_id=chat_id, text="PIN incorrecto.")
-            return
+        # Validación segura: preferir admin_pin.json (hash). Fallback de compatibilidad a env MIIA_ADMIN_PIN (migración automática).
+        if self._admin_pin_is_set():
+            if not self._verify_admin_pin(pin):
+                await context.bot.send_message(chat_id=chat_id, text="PIN incorrecto.")
+                return
+        else:
+            expected_env = (os.environ.get("MIIA_ADMIN_PIN") or "").strip()
+            if expected_env:
+                if pin != expected_env:
+                    await context.bot.send_message(chat_id=chat_id, text="PIN incorrecto.")
+                    return
+                # Migración automática a almacenamiento controlado
+                try:
+                    self._set_admin_pin_hash(pin)
+                except Exception:
+                    pass
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="🔒 Admin PIN no configurado. Usa /setadminpin <PIN> (desde un chat permitido).",
+                )
+                return
 
         self._admin_enabled[chat_id] = True
         await context.bot.send_message(chat_id=chat_id, text="✅ Admin habilitado en este chat. Ya puedes usar /vault para subir skills.")
+
+    async def _cmd_setadminpin(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        chat_id = update.effective_chat.id
+        if self._allowed_chat_ids is not None and chat_id not in self._allowed_chat_ids:
+            await context.bot.send_message(chat_id=chat_id, text="Acceso no autorizado.")
+            return
+
+        if not context.args:
+            await context.bot.send_message(chat_id=chat_id, text="Uso: /setadminpin <PIN>")
+            return
+
+        new_pin = str(context.args[0]).strip()
+        if len(new_pin) < 4:
+            await context.bot.send_message(chat_id=chat_id, text="❌ PIN muy corto. Mínimo 4 dígitos.")
+            return
+
+        # Si ya existe PIN admin, solo permitir cambio si este chat está en modo admin
+        if self._admin_pin_is_set() and not self._admin_enabled.get(chat_id):
+            await context.bot.send_message(chat_id=chat_id, text="🔒 Para cambiar el PIN admin, primero ejecuta: /admin <PIN>")
+            return
+
+        try:
+            self._set_admin_pin_hash(new_pin)
+            await context.bot.send_message(chat_id=chat_id, text="✅ PIN admin configurado/actualizado.")
+        except Exception:
+            await context.bot.send_message(chat_id=chat_id, text="❌ No se pudo configurar el PIN admin.")
+            return
 
     async def _cmd_vault(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
@@ -235,7 +291,9 @@ class TelegramBotService:
             await context.bot.send_message(chat_id=chat_id, text="Acceso no autorizado.")
             return
 
-        await self._show_builder_menu(chat_id, context)
+        # Iniciar wizard directamente (modo usuario): crear Skill PDF paso a paso
+        self._builder_state[chat_id] = {"active": True, "kind": "pdf", "step": "pdf_name"}
+        await context.bot.send_message(chat_id=chat_id, text="Nombre de la skill PDF (ej: pdf_test):")
 
     async def _show_builder_menu(self, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
         kb = InlineKeyboardMarkup(
@@ -373,6 +431,13 @@ class TelegramBotService:
         chat_id = update.effective_chat.id
         text = (update.message.text or "").strip()
 
+        # Si se está esperando el PIN, procesarlo aquí y no pasarlo a bus/LLM.
+        pending_token = self._waiting_pin_token.get(chat_id)
+        if pending_token:
+            handled = await self._handle_pin_input(chat_id, pending_token, text, context, update=update)
+            if handled:
+                return
+
         if text.lower() in ("hola", "hello", "hi", "buenas", "buenos días", "buenos dias", "buenas noches"):
             await self._show_home_panel(chat_id, context)
             return
@@ -507,9 +572,7 @@ class TelegramBotService:
 
         if cmd.intent == "use_skill" and cmd.skill_name:
             await context.bot.send_message(chat_id=chat_id, text=f"Ok. Ejecutando {cmd.skill_name}...")
-            result = await agent_manager.use_and_kill(cmd.skill_name, cmd.task, user_id=f"tg:{chat_id}")
-            await self._maybe_send_screenshot(chat_id, result)
-            await self._send_prepared_file(chat_id, result)
+            await self._execute_skill_with_credentials_check(chat_id, context, cmd.skill_name, cmd.task)
             return
 
         await context.bot.send_message(chat_id=chat_id, text="Di: usa skill <nombre> <tarea> o /help")
@@ -749,6 +812,47 @@ class TelegramBotService:
 
         data = (query.data or "").strip()
 
+        if data.startswith("sec:"):
+            await self._handle_security_callback(query, context, data)
+            return
+
+        if data == "builder:create_pdf":
+            chat = query.message.chat.id
+            self._builder_state[chat] = {"active": True, "kind": "pdf", "step": "pdf_name"}
+            await context.bot.send_message(chat_id=chat, text="Nombre de la skill PDF (ej: pdf_test):")
+            return
+
+        if data == "builder:cancel":
+            chat = query.message.chat.id
+            self._builder_state.pop(chat, None)
+            await context.bot.send_message(chat_id=chat, text="❌ Cancelado.")
+            return
+
+        if data.startswith("builder:folder:"):
+            chat = query.message.chat.id
+            bs = self._builder_state.get(chat)
+            if not isinstance(bs, dict) or not bs.get("active"):
+                return
+            if str(bs.get("step") or "") != "pdf_folder":
+                return
+            folder_key = data.split("builder:folder:", 1)[1].strip()
+            bs["folder"] = folder_key
+            try:
+                skill_name = str(bs.get("name") or "").strip()
+                pdf_text = str(bs.get("text") or "").strip()
+                if not skill_name or not pdf_text:
+                    raise ValueError("Faltan datos del builder")
+                created = self._create_pdf_skill_files(skill_name=skill_name, pdf_text=pdf_text, folder_key=folder_key)
+                self._builder_state.pop(chat, None)
+                await context.bot.send_message(
+                    chat_id=chat,
+                    text=f"✅ Skill creada: {created}.\n\nAhora ejecútala con: usa skill {created} crear",
+                )
+            except Exception:
+                self._builder_state.pop(chat, None)
+                await context.bot.send_message(chat_id=chat, text="❌ No se pudo crear la skill.")
+            return
+
         if data == "myskills:menu":
             await self._show_my_skills(query.message.chat.id, context)
             return
@@ -775,530 +879,266 @@ class TelegramBotService:
             await self._execute_skill_with_credentials_check(chat, context, skill, "crear")
             return
 
-        if data.startswith("myskills:delete:"):
-            chat = query.message.chat.id
-            if not self._admin_enabled.get(chat):
-                await context.bot.send_message(chat_id=chat, text="🔒 Solo admin puede eliminar skills. Usa /admin <PIN>.")
-                return
-            skill = data.split("myskills:delete:", 1)[1].strip()
-            if not skill:
-                return
-            user_dir = Path(os.environ.get("MIIA_USER_SKILLS_DIR", "skills_user"))
-            live_dir = Path(os.environ.get("MIIA_SKILL_VAULT_DIR", "skills_vault")) / "live"
-            try:
-                p = user_dir / f"{skill}.py"
-                if p.exists():
-                    p.unlink()
-            except Exception:
-                pass
-            try:
-                d = live_dir / skill
-                if d.exists() and d.is_dir():
-                    import shutil
+    def _load_pin_record(self) -> Dict[str, Any]:
+        try:
+            if self._pin_path.exists():
+                return json.loads(self._pin_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        return {}
 
-                    shutil.rmtree(d, ignore_errors=True)
-            except Exception:
-                pass
-            await context.bot.send_message(chat_id=chat, text=f"🗑️ Skill eliminada: {skill}")
-            await self._show_my_skills(chat, context)
+    def _save_pin_record(self, rec: Dict[str, Any]) -> None:
+        try:
+            self._pin_path.parent.mkdir(parents=True, exist_ok=True)
+            self._pin_path.write_text(json.dumps(rec, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _load_admin_pin_record(self) -> Dict[str, Any]:
+        try:
+            if self._admin_pin_path.exists():
+                return json.loads(self._admin_pin_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        return {}
+
+    def _save_admin_pin_record(self, rec: Dict[str, Any]) -> None:
+        try:
+            self._admin_pin_path.parent.mkdir(parents=True, exist_ok=True)
+            self._admin_pin_path.write_text(json.dumps(rec, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _hash_pin(self, pin: str, salt_hex: str, rounds: int = 120_000) -> str:
+        pin_b = (pin or "").encode("utf-8")
+        salt = bytes.fromhex(salt_hex)
+        dk = hashlib.pbkdf2_hmac("sha256", pin_b, salt, int(rounds))
+        return dk.hex()
+
+    def _admin_pin_is_set(self) -> bool:
+        rec = self._load_admin_pin_record()
+        return bool(rec.get("pin_hash") and rec.get("salt"))
+
+    def _verify_admin_pin(self, pin: str) -> bool:
+        rec = self._load_admin_pin_record()
+        salt = str(rec.get("salt") or "").strip()
+        pin_hash = str(rec.get("pin_hash") or "").strip()
+        rounds = int(rec.get("rounds") or 120_000)
+        if not salt or not pin_hash:
+            return False
+        try:
+            calc = self._hash_pin(pin, salt_hex=salt, rounds=rounds)
+            return hmac.compare_digest(calc, pin_hash)
+        except Exception:
+            return False
+
+    def _set_admin_pin_hash(self, pin: str) -> None:
+        salt = os.urandom(16).hex()
+        rounds = 120_000
+        pin_hash = self._hash_pin(pin, salt_hex=salt, rounds=rounds)
+        self._save_admin_pin_record({"salt": salt, "rounds": rounds, "pin_hash": pin_hash, "updated_at": time.time()})
+
+    def _pin_is_set(self) -> bool:
+        rec = self._load_pin_record()
+        return bool(rec.get("pin_hash") and rec.get("salt"))
+
+    def _verify_pin(self, pin: str) -> bool:
+        rec = self._load_pin_record()
+        salt = str(rec.get("salt") or "").strip()
+        pin_hash = str(rec.get("pin_hash") or "").strip()
+        rounds = int(rec.get("rounds") or 120_000)
+        if not salt or not pin_hash:
+            return False
+        try:
+            calc = self._hash_pin(pin, salt_hex=salt, rounds=rounds)
+            return hmac.compare_digest(calc, pin_hash)
+        except Exception:
+            return False
+
+    async def _cmd_setpin(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        chat_id = update.effective_chat.id
+        if self._allowed_chat_ids is not None and chat_id not in self._allowed_chat_ids:
+            await context.bot.send_message(chat_id=chat_id, text="Acceso no autorizado.")
             return
 
-        if data.startswith("home:"):
-            chat = query.message.chat.id
-            if data == "home:explore":
-                await self._show_desktop_menu(chat)
-                return
-            if data == "home:builder":
-                await self._show_builder_menu(chat, context)
-                return
-            if data == "home:vault":
-                await self._show_vault_menu(chat, context)
-                return
-            if data == "home:help":
-                kb = InlineKeyboardMarkup(
-                    [
-                        [InlineKeyboardButton("🖥️ Explorar mi PC", callback_data="home:explore")],
-                        [InlineKeyboardButton("🧰 Crear una Skill", callback_data="home:builder")],
-                        [InlineKeyboardButton("📦 Baúl de Skills", callback_data="home:vault")],
-                    ]
-                )
-                await context.bot.send_message(
-                    chat_id=chat,
-                    text=(
-                        "❓ Ayuda rápida (1 minuto)\n\n"
-                        "1) Toca 🖥️ Explorar mi PC para ver Escritorio/Documentos/Descargas.\n"
-                        "2) Usa 📤 Enviar para mandarte archivos al chat.\n"
-                        "3) Toca 🧰 Crear una Skill para automatizar (ej: crear PDF y enviarlo).\n"
-                        "4) Usa 📦 Baúl de Skills para subir skills avanzadas (.zip) con simulador.\n"
-                    ),
-                    reply_markup=kb,
-                )
-                return
-
-        if data == "builder:menu":
-            await self._show_builder_menu(query.message.chat.id, context)
+        if not self._admin_enabled.get(chat_id):
+            await context.bot.send_message(chat_id=chat_id, text="🔒 Ejecuta /admin <PIN_ADMIN> antes de configurar el PIN.")
             return
 
-        if data == "vault:menu":
-            await self._show_vault_menu(query.message.chat.id, context)
-            return
-
-        if data.startswith("builder:"):
-            chat = query.message.chat.id
-            if self._allowed_chat_ids is not None and chat not in self._allowed_chat_ids:
-                return
-
-            if data == "builder:create_pdf":
-                suggested = f"PDF_{int(time.time())}"
-                self._builder_state[chat] = {"active": True, "step": "pdf_name", "suggested_name": suggested}
-                kb = InlineKeyboardMarkup(
-                    [
-                        [InlineKeyboardButton(f"✅ Usar: {suggested}", callback_data="builder:name:auto")],
-                        [InlineKeyboardButton("❌ Cancelar", callback_data="builder:cancel")],
-                    ]
-                )
-                await context.bot.send_message(
-                    chat_id=chat,
-                    text=(
-                        "🧰 Crear Skill PDF\n\n"
-                        "Elige un nombre sugerido o escribe tu propio nombre."
-                    ),
-                    reply_markup=kb,
-                )
-                return
-
-            if data == "builder:name:auto":
-                bs = self._builder_state.get(chat)
-                if not isinstance(bs, dict) or not bs.get("active") or bs.get("step") != "pdf_name":
-                    return
-                bs["name"] = str(bs.get("suggested_name") or "Mi Skill")
-                bs["step"] = "pdf_text"
-                kb = InlineKeyboardMarkup(
-                    [
-                        [InlineKeyboardButton("⬅️ Atrás", callback_data="builder:back")],
-                        [InlineKeyboardButton("❌ Cancelar", callback_data="builder:cancel")],
-                    ]
-                )
-                await context.bot.send_message(chat_id=chat, text="Ahora escribe el texto que irá dentro del PDF.", reply_markup=kb)
-                return
-
-            if data == "builder:cancel":
-                self._builder_state.pop(chat, None)
-                await context.bot.send_message(chat_id=chat, text="Cancelado.")
-                return
-
-            if data == "builder:back":
-                bs = self._builder_state.get(chat)
-                if not isinstance(bs, dict) or not bs.get("active"):
-                    return
-                step = str(bs.get("step") or "")
-                if step == "pdf_text":
-                    bs["step"] = "pdf_name"
-                    suggested = str(bs.get("suggested_name") or f"PDF_{int(time.time())}")
-                    kb = InlineKeyboardMarkup(
-                        [
-                            [InlineKeyboardButton(f"✅ Usar: {suggested}", callback_data="builder:name:auto")],
-                            [InlineKeyboardButton("❌ Cancelar", callback_data="builder:cancel")],
-                        ]
-                    )
-                    await context.bot.send_message(chat_id=chat, text="Volvimos. Elige o escribe el nombre de la skill.", reply_markup=kb)
-                    return
-                if step == "pdf_folder":
-                    bs["step"] = "pdf_text"
-                    kb = InlineKeyboardMarkup(
-                        [
-                            [InlineKeyboardButton("⬅️ Atrás", callback_data="builder:back")],
-                            [InlineKeyboardButton("❌ Cancelar", callback_data="builder:cancel")],
-                        ]
-                    )
-                    await context.bot.send_message(chat_id=chat, text="Ok. Escribe el texto del PDF.", reply_markup=kb)
-                    return
-                if step == "pdf_send":
-                    bs["step"] = "pdf_folder"
-                    kb = InlineKeyboardMarkup(
-                        [
-                            [
-                                InlineKeyboardButton("📄 Documentos", callback_data="builder:folder:documents"),
-                                InlineKeyboardButton("⬇️ Descargas", callback_data="builder:folder:downloads"),
-                            ],
-                            [InlineKeyboardButton("🖥️ Escritorio", callback_data="builder:folder:desktop")],
-                            [InlineKeyboardButton("❌ Cancelar", callback_data="builder:cancel")],
-                        ]
-                    )
-                    await context.bot.send_message(chat_id=chat, text="¿Dónde quieres guardar el archivo?", reply_markup=kb)
-                    return
-                if step == "pdf_format":
-                    bs["step"] = "pdf_send"
-                    kb = InlineKeyboardMarkup(
-                        [
-                            [InlineKeyboardButton("✅ Sí, enviar a Telegram", callback_data="builder:send:yes")],
-                            [InlineKeyboardButton("❌ No, solo guardar", callback_data="builder:send:no")],
-                            [InlineKeyboardButton("⬅️ Atrás", callback_data="builder:back")],
-                            [InlineKeyboardButton("❌ Cancelar", callback_data="builder:cancel")],
-                        ]
-                    )
-                    await context.bot.send_message(chat_id=chat, text="¿Quieres que también lo envíe a Telegram?", reply_markup=kb)
-                    return
-                return
-
-            if data.startswith("builder:folder:"):
-                bs = self._builder_state.get(chat)
-                if not isinstance(bs, dict) or not bs.get("active") or bs.get("step") != "pdf_folder":
-                    return
-                folder = data.split("builder:folder:", 1)[1]
-                bs["folder"] = folder
-                bs["step"] = "pdf_send"
-                kb = InlineKeyboardMarkup(
-                    [
-                        [
-                            InlineKeyboardButton("✅ Sí, enviar a Telegram", callback_data="builder:send:yes"),
-                        ],
-                        [
-                            InlineKeyboardButton("❌ No, solo guardar", callback_data="builder:send:no"),
-                        ],
-                        [InlineKeyboardButton("⬅️ Atrás", callback_data="builder:back")],
-                        [InlineKeyboardButton("❌ Cancelar", callback_data="builder:cancel")],
-                    ]
-                )
-                await context.bot.send_message(chat_id=chat, text="¿Quieres que también lo envíe a Telegram?", reply_markup=kb)
-                return
-
-            if data.startswith("builder:send:"):
-                bs = self._builder_state.get(chat)
-                if not isinstance(bs, dict) or not bs.get("active") or bs.get("step") != "pdf_send":
-                    return
-                bs["send"] = data.split("builder:send:", 1)[1] == "yes"
-                bs["step"] = "pdf_format"
-
-                has_reportlab = importlib.util.find_spec("reportlab") is not None
-                if has_reportlab:
-                    kb = InlineKeyboardMarkup(
-                        [
-                            [InlineKeyboardButton("📄 Crear PDF real", callback_data="builder:format:pdf")],
-                            [InlineKeyboardButton("⬅️ Atrás", callback_data="builder:back")],
-                            [InlineKeyboardButton("❌ Cancelar", callback_data="builder:cancel")],
-                        ]
-                    )
-                    await context.bot.send_message(
-                        chat_id=chat,
-                        text="✅ Detecté librería PDF (reportlab). ¿Creamos PDF real?",
-                        reply_markup=kb,
-                    )
-                else:
-                    kb = InlineKeyboardMarkup(
-                        [
-                            [InlineKeyboardButton("📝 Crear HTML/TXT (alternativa)", callback_data="builder:format:html")],
-                            [InlineKeyboardButton("⬅️ Atrás", callback_data="builder:back")],
-                            [InlineKeyboardButton("❌ Cancelar", callback_data="builder:cancel")],
-                        ]
-                    )
-                    await context.bot.send_message(
-                        chat_id=chat,
-                        text="⚠️ No detecté librería PDF (reportlab). Puedo crear una alternativa HTML/TXT.",
-                        reply_markup=kb,
-                    )
-                return
-
-            if data.startswith("builder:format:"):
-                bs = self._builder_state.get(chat)
-                if not isinstance(bs, dict) or not bs.get("active") or bs.get("step") != "pdf_format":
-                    return
-
-                fmt = data.split("builder:format:", 1)[1]
-                name = str(bs.get("name") or "Mi Skill").strip()
-                text = str(bs.get("text") or "").strip()
-                folder = str(bs.get("folder") or "documents")
-                send_it = bool(bs.get("send"))
-                skill_id = re.sub(r"[^a-zA-Z0-9_\-]+", "_", name.strip().lower()).strip("_-") or "mi_skill"
-
-                # preparar skill en temp
-                tmp_dir = Path(os.environ.get("MIIA_SKILL_BUILDER_TMP", str(Path(os.getenv("TEMP", ".")) / "miia_builder")))
-                out_dir = tmp_dir / f"skill_{skill_id}_{int(time.time())}"
-                out_dir.mkdir(parents=True, exist_ok=True)
-
-                permissions = ["fs_write"]
-                if send_it:
-                    permissions.append("telegram_send")
-
-                manifest = {
-                    "id": skill_id,
-                    "name": name,
-                    "version": "1.0",
-                    "permissions": permissions,
-                }
-                (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-
-                # generación
-                if fmt == "pdf":
-                    code = (
-                        "import time\n"
-                        "from pathlib import Path\n"
-                        "\n"
-                        "def _resolve_known(folder: str) -> Path:\n"
-                        "    f = (folder or '').strip().lower()\n"
-                        "    h = Path.home()\n"
-                        "    if f in ('documents','documentos','docs'): return h / 'Documents'\n"
-                        "    if f in ('downloads','descargas'): return h / 'Downloads'\n"
-                        "    if f in ('desktop','escritorio'): return h / 'Desktop'\n"
-                        "    return h\n"
-                        "\n"
-                        "def execute(context):\n"
-                        "    from reportlab.pdfgen import canvas\n"
-                        f"    text = {json.dumps(text, ensure_ascii=False)}\n"
-                        f"    folder = {json.dumps(folder)}\n"
-                        f"    send_it = {json.dumps(send_it)}\n"
-                        "    base = _resolve_known(folder)\n"
-                        "    base.mkdir(parents=True, exist_ok=True)\n"
-                        f"    filename = {json.dumps(skill_id)} + '_' + str(int(time.time())) + '.pdf'\n"
-                        "    out = (base / filename).resolve()\n"
-                        "    c = canvas.Canvas(str(out))\n"
-                        "    y = 800\n"
-                        "    for line in str(text).splitlines() or ['']:\n"
-                        "        c.drawString(40, y, line[:200])\n"
-                        "        y -= 16\n"
-                        "        if y < 40:\n"
-                        "            c.showPage()\n"
-                        "            y = 800\n"
-                        "    c.save()\n"
-                        "    res = {'success': True, 'message': f'PDF creado: {out}', 'path': str(out)}\n"
-                        "    if send_it:\n"
-                        "        res.update({'send_path': str(out), 'send_kind': 'document', 'original_name': out.name})\n"
-                        "    return res\n"
-                    )
-                else:
-                    code = (
-                        "import time\n"
-                        "from pathlib import Path\n"
-                        "\n"
-                        "def _resolve_known(folder: str) -> Path:\n"
-                        "    f = (folder or '').strip().lower()\n"
-                        "    h = Path.home()\n"
-                        "    if f in ('documents','documentos','docs'): return h / 'Documents'\n"
-                        "    if f in ('downloads','descargas'): return h / 'Downloads'\n"
-                        "    if f in ('desktop','escritorio'): return h / 'Desktop'\n"
-                        "    return h\n"
-                        "\n"
-                        "def execute(context):\n"
-                        f"    text = {json.dumps(text, ensure_ascii=False)}\n"
-                        f"    folder = {json.dumps(folder)}\n"
-                        f"    send_it = {json.dumps(send_it)}\n"
-                        "    base = _resolve_known(folder)\n"
-                        "    base.mkdir(parents=True, exist_ok=True)\n"
-                        f"    filename = {json.dumps(skill_id)} + '_' + str(int(time.time())) + '.html'\n"
-                        "    out = (base / filename).resolve()\n"
-                        "    out.write_text('<pre>' + str(text) + '</pre>', encoding='utf-8')\n"
-                        "    res = {'success': True, 'message': f'HTML creado: {out}', 'path': str(out)}\n"
-                        "    if send_it:\n"
-                        "        res.update({'send_path': str(out), 'send_kind': 'document', 'original_name': out.name})\n"
-                        "    return res\n"
-                    )
-
-                (out_dir / "skill.py").write_text(code, encoding="utf-8")
-
-                await context.bot.send_message(chat_id=chat, text="🧪 Validando e instalando tu skill...")
-                report, module_path = vault.install_from_prepared_dir(out_dir)
-
-                self._builder_state.pop(chat, None)
-
-                if report.ok:
-                    await context.bot.send_message(
-                        chat_id=chat,
-                        text=(
-                            f"✅ Skill creada e instalada: {report.skill_id}\n"
-                            f"Ya puedes usar: usa skill {report.skill_id} <tarea>\n"
-                            f"(Para generar el documento, puedes usar cualquier tarea, por ejemplo: 'crear')"
-                        ),
-                    )
-                else:
-                    reasons = "\n".join([f"- {r}" for r in report.reasons]) if report.reasons else "- (sin detalles)"
-                    await context.bot.send_message(chat_id=chat, text=f"❌ No se pudo instalar. Motivos:\n{reasons}")
-                return
-
-        if data.startswith("vault:"):
-            chat = query.message.chat.id
-            if self._allowed_chat_ids is not None and chat not in self._allowed_chat_ids:
-                return
-            if not self._admin_enabled.get(chat):
-                await context.bot.send_message(chat_id=chat, text="🔒 Ejecuta /admin <PIN> para usar el baúl.")
-                return
-
-            if data == "vault:menu":
-                await self._show_vault_menu(chat, context)
-                return
-
-            if data == "vault:upload":
-                self._vault_waiting_zip[chat] = True
-                await context.bot.send_message(chat_id=chat, text="📦 Envíame ahora el archivo .zip (manifest.json + skill.py).")
-                return
-
-            staged = Path(self._vault_staged_zip.get(chat, "")) if self._vault_staged_zip.get(chat) else None
-
-            if data == "vault:delete":
-                if staged and staged.exists():
-                    vault.delete_staged(staged)
-                self._vault_staged_zip.pop(chat, None)
-                await context.bot.send_message(chat_id=chat, text="🗑️ Eliminada.")
-                return
-
-            if data == "vault:quarantine":
-                if staged and staged.exists():
-                    out = vault.quarantine(staged, reason="Cuarentena manual solicitada por usuario")
-                    self._vault_staged_zip[chat] = str(out)
-                await context.bot.send_message(chat_id=chat, text="🔒 En cuarentena (no ejecutable).")
-                return
-
-            if data == "vault:simulate":
-                if not staged or not staged.exists():
-                    await context.bot.send_message(chat_id=chat, text="No hay ZIP staged para validar.")
-                    return
-
-                await context.bot.send_message(chat_id=chat, text="🧪 Ejecutando simulador de seguridad...")
-                report, module_path = vault.validate_and_install(staged)
-
-                if report.ok:
-                    self._vault_staged_zip.pop(chat, None)
-                    await context.bot.send_message(
-                        chat_id=chat,
-                        text=(
-                            f"✅ Pasó la prueba.\n"
-                            f"Skill instalada como: {report.skill_id}\n"
-                            f"Ya aparece en /skills y puedes usar: usa skill {report.skill_id} <tarea>"
-                        ),
-                    )
-                    return
-
-                qpath = ""
-                try:
-                    for r in (report.reasons or []):
-                        if isinstance(r, str) and r.startswith("Cuarentena:"):
-                            qpath = r.split("Cuarentena:", 1)[1].strip()
-                            break
-                except Exception:
-                    qpath = ""
-
-                reasons = "\n".join([f"- {r}" for r in report.reasons if isinstance(r, str) and not r.startswith("Cuarentena:")]) if report.reasons else "- (sin detalles)"
-                if qpath:
-                    reasons += f"\n\n📁 Cuarentena: {qpath}"
-                kb = InlineKeyboardMarkup(
-                    [
-                        [InlineKeyboardButton("🗑️ Eliminar", callback_data="vault:delete")],
-                        [InlineKeyboardButton("🔒 Mantener en cuarentena", callback_data="vault:quarantine")],
-                    ]
-                )
-                await context.bot.send_message(
-                    chat_id=chat,
-                    text=(
-                        "❌ No pasó la prueba de seguridad. Alto % de ser maliciosa.\n\n"
-                        "Motivos:\n"
-                        f"{reasons}"
-                    ),
-                    reply_markup=kb,
-                )
-                return
-
-        if data.startswith("menu:"):
-            key = data.split("menu:", 1)[1]
-            self._pc_page_offset[query.message.chat.id] = 0
-            self._pc_search_query.pop(query.message.chat.id, None)
-            if key == "home":
-                res = await self._run_pc_control(query.message.chat.id, action="open_folder", folder="home")
-            elif key == "desktop":
-                res = await self._run_pc_control(query.message.chat.id, action="open_folder", folder="desktop")
-            elif key == "downloads":
-                res = await self._run_pc_control(query.message.chat.id, action="open_folder", folder="downloads")
-            elif key == "documents":
-                res = await self._run_pc_control(query.message.chat.id, action="open_folder", folder="documents")
-            elif key == "pictures":
-                res = await self._run_pc_control(query.message.chat.id, action="open_folder", folder="pictures")
-            elif key == "videos":
-                res = await self._run_pc_control(query.message.chat.id, action="open_folder", folder="videos")
-            else:
-                return
-            await self._send_pc_result(query.message.chat.id, res)
-            return
-        if data == "nav:back":
-            self._pc_page_offset[query.message.chat.id] = 0
-            res = await self._run_pc_control(query.message.chat.id, action="go_back")
-            await self._send_pc_result(query.message.chat.id, res)
-            return
-        if data == "nav:refresh":
-            res = await self._run_pc_control(query.message.chat.id, action="list_dir")
-            await self._send_pc_result(query.message.chat.id, res, search_query=self._pc_search_query.get(query.message.chat.id, ""))
-            return
-        if data == "nav:search":
-            self._pc_waiting_search[query.message.chat.id] = True
-            await context.bot.send_message(chat_id=query.message.chat.id, text="🔍 Escribe lo que quieres buscar en ESTA carpeta (no recursivo). Ej: buscar factura")
-            return
-        if data == "nav:auto":
-            enabled = not bool(self._auto_refresh_enabled.get(query.message.chat.id))
-            self._auto_refresh_enabled[query.message.chat.id] = enabled
-            if enabled:
-                await context.bot.send_message(chat_id=query.message.chat.id, text="🟢 Auto-refresh activado (cada 6s). Para parar, vuelve a tocar Auto-refresh.")
-                self._start_auto_refresh(query.message.chat.id)
-            else:
-                self._stop_auto_refresh(query.message.chat.id)
-                await context.bot.send_message(chat_id=query.message.chat.id, text="⚪ Auto-refresh desactivado.")
-            return
-        if data == "nav:next":
-            all_entries = self._pc_last_entries.get(query.message.chat.id, [])
-            offset = int(self._pc_page_offset.get(query.message.chat.id, 0) or 0)
-            page_size = 8
-            if (offset + page_size) < len(all_entries):
-                self._pc_page_offset[query.message.chat.id] = offset + page_size
-            res = await self._run_pc_control(query.message.chat.id, action="list_dir")
-            await self._send_pc_result(query.message.chat.id, res, search_query=self._pc_search_query.get(query.message.chat.id, ""))
-            return
-        if data == "nav:prev":
-            offset = int(self._pc_page_offset.get(query.message.chat.id, 0) or 0)
-            page_size = 8
-            offset = max(0, offset - page_size)
-            self._pc_page_offset[query.message.chat.id] = offset
-            res = await self._run_pc_control(query.message.chat.id, action="list_dir")
-            await self._send_pc_result(query.message.chat.id, res, search_query=self._pc_search_query.get(query.message.chat.id, ""))
-            return
-        if data.startswith("nav:enter:"):
-            try:
-                idx = int(data.split("nav:enter:", 1)[1])
-            except Exception:
-                return
-            entries = self._pc_last_entries.get(query.message.chat.id, [])
-            if 0 <= idx < len(entries):
-                name = str(entries[idx].get("name", ""))
-                self._pc_page_offset[query.message.chat.id] = 0
-                self._pc_search_query.pop(query.message.chat.id, None)
-                res = await self._run_pc_control(query.message.chat.id, action="enter_dir", folder=name)
-                await self._send_pc_result(query.message.chat.id, res)
-            return
-        if data.startswith("nav:send:"):
-            try:
-                idx = int(data.split("nav:send:", 1)[1])
-            except Exception:
-                return
-            entries = self._pc_last_entries.get(query.message.chat.id, [])
-            if 0 <= idx < len(entries):
-                name = str(entries[idx].get("name", ""))
-                res = await self._run_pc_control(query.message.chat.id, action="prepare_send", folder=name)
-                await self._send_pc_result(query.message.chat.id, res)
-                await self._send_prepared_file(query.message.chat.id, res)
-            return
-        if data.startswith("retry:"):
-            session_id = data.split("retry:", 1)[1]
-            await bus.publish("skill.RETRY_REQUEST", {"session_id": session_id, "channel": "telegram"}, sender="TelegramBot")
-            await context.bot.send_message(chat_id=query.message.chat.id, text="🔁 Reintentando...")
-            return
-        
-        # Handler para cancelar solicitud de credenciales
-        if data.startswith("cred:cancel:"):
-            chat = query.message.chat.id
-            skill = data.split("cred:cancel:", 1)[1].strip()
-            # Limpiar solicitud pendiente
-            self._credential_requests.pop(f"cred_request_{chat}", None)
-            self._pending_credentials.pop(f"cred_session_{skill}_{chat}", None)
+        if not context.args:
             await context.bot.send_message(
-                chat_id=chat,
-                text=f"❌ Solicitud de credenciales cancelada. La skill '{skill}' no se ejecutará."
+                chat_id=chat_id,
+                text="Uso: /setpin <PIN>\nEj: /setpin 1234\n\nNota: MININA guarda solo el hash (no el PIN).",
             )
             return
+
+        pin = str(context.args[0]).strip()
+        if len(pin) < 4:
+            await context.bot.send_message(chat_id=chat_id, text="❌ PIN muy corto. Mínimo 4 dígitos.")
+            return
+
+        salt = os.urandom(16).hex()
+        rounds = 120_000
+        pin_hash = self._hash_pin(pin, salt_hex=salt, rounds=rounds)
+        self._save_pin_record({"salt": salt, "rounds": rounds, "pin_hash": pin_hash, "updated_at": time.time()})
+
+        await context.bot.send_message(chat_id=chat_id, text="✅ PIN configurado. Se pedirá para acciones de riesgo alto.")
+
+    def _risk_from_permissions(self, permissions: list) -> str:
+        perms = {str(p).strip().lower() for p in (permissions or [])}
+        if any(p in perms for p in ["network", "fs_write", "pc_control", "telegram_send"]):
+            return "high"
+        if "fs_read" in perms:
+            return "medium"
+        return "low"
+
+    def _escape_md(self, text: str) -> str:
+        # Markdown (legacy) en Telegram es frágil con '_' y otros caracteres.
+        # Escapamos lo mínimo para que no rompa el mensaje.
+        s = str(text or "")
+        for ch in ["_", "*", "`", "[", "]"]:
+            s = s.replace(ch, f"\\{ch}")
+        return s
+
+    async def _request_security_approval(
+        self,
+        chat_id: int,
+        context: ContextTypes.DEFAULT_TYPE,
+        *,
+        title: str,
+        description: str,
+        action: Dict[str, Any],
+        ttl_seconds: int = 90,
+    ) -> None:
+        token = f"sec_{chat_id}_{int(time.time()*1000)}"
+        self._pending_security_actions[token] = {
+            "chat_id": chat_id,
+            "created_at": time.time(),
+            "expires_at": time.time() + ttl_seconds,
+            "stage": "confirm",
+            "action": action,
+            "title": title,
+            "description": description,
+        }
+
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("✅ Aprobar", callback_data=f"sec:approve:{token}")],
+                [InlineKeyboardButton("❌ Cancelar", callback_data=f"sec:deny:{token}")],
+            ]
+        )
+
+        pin_note = "\n\n🔐 Luego se pedirá tu PIN." if self._pin_is_set() else "\n\n⚠️ PIN no configurado. Usa /admin y /setpin."
+        safe_title = self._escape_md(title)
+        safe_desc = self._escape_md(description)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"⚠️ *Acción de riesgo alto*\n\n"
+                f"*{safe_title}*\n"
+                f"{safe_desc}{pin_note}\n\n"
+                f"¿Confirmas?"
+            ),
+            parse_mode="Markdown",
+            reply_markup=kb,
+        )
+
+    async def _handle_security_callback(self, query, context: ContextTypes.DEFAULT_TYPE, data: str) -> None:
+        chat_id = query.message.chat.id if query.message else None
+        if chat_id is None:
+            return
+
+        parts = data.split(":", 2)
+        if len(parts) < 3:
+            return
+        cmd = parts[1]
+        token = parts[2]
+        entry = self._pending_security_actions.get(token)
+        if not isinstance(entry, dict):
+            await context.bot.send_message(chat_id=chat_id, text="⚠️ Sesión de aprobación no encontrada o expirada.")
+            return
+
+        if entry.get("chat_id") != chat_id:
+            await context.bot.send_message(chat_id=chat_id, text="⚠️ Sesión no válida.")
+            return
+
+        if time.time() > float(entry.get("expires_at") or 0):
+            self._pending_security_actions.pop(token, None)
+            await context.bot.send_message(chat_id=chat_id, text="⏰ Aprobación expirada. Vuelve a solicitar la acción.")
+            return
+
+        if cmd == "deny":
+            self._pending_security_actions.pop(token, None)
+            self._waiting_pin_token.pop(chat_id, None)
+            await context.bot.send_message(chat_id=chat_id, text="❌ Cancelado.")
+            return
+
+        if cmd == "approve":
+            if not self._pin_is_set():
+                await context.bot.send_message(chat_id=chat_id, text="⚠️ PIN no configurado. Usa /admin y /setpin primero.")
+                return
+            entry["stage"] = "pin"
+            self._waiting_pin_token[chat_id] = token
+            await context.bot.send_message(chat_id=chat_id, text="🔐 Escribe tu PIN para continuar (no será enviado a ninguna API).")
+            return
+
+    async def _handle_pin_input(
+        self,
+        chat_id: int,
+        token: str,
+        pin_text: str,
+        context: ContextTypes.DEFAULT_TYPE,
+        *,
+        update: Optional[Update] = None,
+    ) -> bool:
+        entry = self._pending_security_actions.get(token)
+        if not isinstance(entry, dict) or entry.get("chat_id") != chat_id:
+            self._waiting_pin_token.pop(chat_id, None)
+            return False
+
+        if time.time() > float(entry.get("expires_at") or 0):
+            self._pending_security_actions.pop(token, None)
+            self._waiting_pin_token.pop(chat_id, None)
+            await context.bot.send_message(chat_id=chat_id, text="⏰ Aprobación expirada.")
+            return True
+
+        # Intentar borrar el mensaje del PIN (best effort)
+        try:
+            if update and update.message:
+                await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
+        except Exception:
+            pass
+
+        pin = (pin_text or "").strip()
+        if not self._verify_pin(pin):
+            await context.bot.send_message(chat_id=chat_id, text="❌ PIN incorrecto. Cancelado.")
+            self._pending_security_actions.pop(token, None)
+            self._waiting_pin_token.pop(chat_id, None)
+            return True
+
+        action = entry.get("action") if isinstance(entry.get("action"), dict) else {}
+        self._pending_security_actions.pop(token, None)
+        self._waiting_pin_token.pop(chat_id, None)
+
+        # Ejecutar acción ya aprobada (sin exponer PIN)
+        kind = str(action.get("kind") or "").strip()
+        if kind == "skill_exec":
+            skill = str(action.get("skill") or "").strip()
+            task = str(action.get("task") or "").strip()
+            if not skill:
+                await context.bot.send_message(chat_id=chat_id, text="⚠️ Acción inválida.")
+                return True
+            await context.bot.send_message(chat_id=chat_id, text=f"✅ Aprobado. Ejecutando {skill}...")
+            try:
+                result = await agent_manager.use_and_kill(skill, task, user_id=f"tg:{chat_id}")
+                await self._maybe_send_screenshot(chat_id, result)
+                await self._send_prepared_file(chat_id, result)
+            except Exception as e:
+                await context.bot.send_message(chat_id=chat_id, text=f"❌ Error ejecutando: {str(e)}")
+            return True
+
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ Acción no soportada.")
+        return True
 
     async def _send_prepared_file(self, chat_id: int, result: Any) -> None:
         if self.app is None:
@@ -1374,15 +1214,20 @@ class TelegramBotService:
         )
 
     def _get_user_skills(self) -> list[str]:
-        user_dir = Path(os.environ.get("MIIA_USER_SKILLS_DIR", "skills_user"))
-        if not user_dir.exists():
-            return []
-        out: list[str] = []
-        for f in user_dir.glob("*.py"):
-            if f.name.startswith("_"):
-                continue
-            out.append(f.stem)
-        return list(sorted(set(out)))
+        root_dir = Path(__file__).resolve().parent.parent
+        candidates = [root_dir / "skills_user", root_dir / "data" / "skills_user"]
+        out: set[str] = set()
+        for user_dir in candidates:
+            try:
+                if not user_dir.exists():
+                    continue
+                for f in user_dir.glob("*.py"):
+                    if f.name.startswith("_"):
+                        continue
+                    out.add(f.stem)
+            except Exception:
+                pass
+        return list(sorted(out))
 
     async def _show_my_skills(self, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
         skills = self._get_user_skills()
@@ -1422,14 +1267,28 @@ class TelegramBotService:
 
     def _get_skill_permissions(self, skill_name: str) -> list:
         """Obtiene los permisos de una skill desde su manifest"""
-        user_dir = Path(os.environ.get("MIIA_USER_SKILLS_DIR", "skills_user"))
-        live_dir = Path(os.environ.get("MIIA_SKILL_VAULT_DIR", "skills_vault")) / "live"
+        base_data = Path(__file__).resolve().parent.parent / "data"
+        live_dir = base_data / "skills_vault" / "live"
+
+        root_dir = Path(__file__).resolve().parent.parent
+        user_dir_root = root_dir / "skills_user"
+        user_dir_data = root_dir / "data" / "skills_user"
+
+        manifest_candidates = [
+            live_dir / skill_name / "manifest.json",
+            user_dir_root / f"{skill_name}.manifest.json",
+            user_dir_data / f"{skill_name}.manifest.json",
+            user_dir_root / skill_name / "manifest.json",
+            user_dir_data / skill_name / "manifest.json",
+        ]
+
+        manifest_path = None
+        for p in manifest_candidates:
+            if p.exists():
+                manifest_path = p
+                break
         
-        manifest_path = user_dir / skill_name / "manifest.json"
-        if not manifest_path.exists():
-            manifest_path = live_dir / skill_name / "manifest.json"
-        
-        if manifest_path.exists():
+        if manifest_path is not None and manifest_path.exists():
             try:
                 import json
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1437,6 +1296,66 @@ class TelegramBotService:
             except:
                 pass
         return []
+
+    def _create_pdf_skill_files(self, *, skill_name: str, pdf_text: str, folder_key: str) -> str:
+        safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", (skill_name or "").strip().lower())
+        safe = re.sub(r"_+", "_", safe).strip("_")
+        if not safe:
+            safe = f"pdf_{int(time.time())}"
+
+        root_dir = Path(__file__).resolve().parent.parent
+        out_dir = root_dir / "skills_user"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        skill_path = out_dir / f"{safe}.py"
+        manifest_path = out_dir / f"{safe}.manifest.json"
+
+        # Manifest para que el bot lo clasifique como HIGH (fs_write)
+        manifest = {
+            "id": safe,
+            "name": safe,
+            "version": "1.0.0",
+            "description": "PDF builder (Telegram)",
+            "permissions": ["fs_write"],
+            "builder": {"kind": "pdf", "folder": str(folder_key or "")},
+        }
+
+        code = (
+            "import time\n"
+            "from pathlib import Path\n"
+            "\n"
+            "def execute(ctx):\n"
+            "    text = str((ctx or {}).get('task') or '').strip()\n"
+            "    if not text:\n"
+            "        text = '" + pdf_text.replace("\\", "\\\\").replace("\n", "\\n").replace("\"", "\\\"") + "'\n"
+            "    ts = int(time.time())\n"
+            "    out_dir = Path('output')\n"
+            "    out_dir.mkdir(parents=True, exist_ok=True)\n"
+            "    pdf_path = out_dir / f'" + safe + "_{ts}.pdf'\n"
+            "    body = text.replace('\\r', '')\n"
+            "    content = (\n"
+            "        '%PDF-1.4\\n'\n"
+            "        '1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\\n'\n"
+            "        '2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj\\n'\n"
+            "        '3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources<< /Font<< /F1 5 0 R >> >> >>endobj\\n'\n"
+            "        + f'4 0 obj<< /Length {len(body)+50} >>stream\\nBT\\n/F1 12 Tf\\n72 720 Td\\n(' + body.replace('(', '[').replace(')', ']') + ') Tj\\nET\\nendstream\\nendobj\\n'\n"
+            "        '5 0 obj<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>endobj\\n'\n"
+            "        'xref\\n0 6\\n0000000000 65535 f\\n'\n"
+            "        'trailer<< /Root 1 0 R /Size 6 >>\\nstartxref\\n0\\n%%EOF\\n'\n"
+            "    )\n"
+            "    pdf_path.write_bytes(content.encode('latin-1', errors='ignore'))\n"
+            "    return {\n"
+            "        'success': True,\n"
+            "        'message': f'PDF generado: {pdf_path.name}',\n"
+            "        'send_kind': 'document',\n"
+            "        'send_path': str(pdf_path),\n"
+            "        'original_name': pdf_path.name,\n"
+            "    }\n"
+        )
+
+        skill_path.write_text(code, encoding="utf-8")
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        return safe
 
     async def _execute_skill_with_credentials_check(
         self, 
@@ -1446,32 +1365,46 @@ class TelegramBotService:
         task: str
     ) -> None:
         """Ejecuta skill verificando si necesita credenciales"""
-        permissions = self._get_skill_permissions(skill_name)
-        
-        if "credentials" in permissions:
-            cred_session_key = f"cred_session_{skill_name}_{chat_id}"
-            credential_session = self._pending_credentials.get(cred_session_key)
-            
-            if not credential_session:
-                await self._request_credentials_from_user(chat_id, context, skill_name, task)
+        try:
+            permissions = self._get_skill_permissions(skill_name)
+
+            # Gate de seguridad: acciones de riesgo alto requieren doble aprobación (botón + PIN)
+            if self._risk_from_permissions(permissions) == "high":
+                perms_txt = ", ".join([str(p) for p in (permissions or [])])
+                await self._request_security_approval(
+                    chat_id,
+                    context,
+                    title=f"Ejecutar skill: {skill_name}",
+                    description=f"Tarea: {task or '(sin tarea)'}\nPermisos: {perms_txt}",
+                    action={"kind": "skill_exec", "skill": skill_name, "task": task},
+                )
                 return
-            else:
-                await context.bot.send_message(
-                    chat_id=chat_id, 
-                    text=f"🔐 Ejecutando {skill_name} con credenciales..."
-                )
-                result = await agent_manager.use_and_kill(
-                    skill_name, task, user_id=f"tg:{chat_id}"
-                )
+
+            # Si requiere credenciales, pedirlas/usar sesión
+            if "credentials" in permissions:
+                cred_session_key = f"cred_session_{skill_name}_{chat_id}"
+                credential_session = self._pending_credentials.get(cred_session_key)
+                if not credential_session:
+                    await self._request_credentials_from_user(chat_id, context, skill_name, task)
+                    return
+
+                await context.bot.send_message(chat_id=chat_id, text=f"🔐 Ejecutando {skill_name} con credenciales...")
+                result = await agent_manager.use_and_kill(skill_name, task, user_id=f"tg:{chat_id}")
                 self._pending_credentials.pop(cred_session_key, None)
                 await self._maybe_send_screenshot(chat_id, result)
                 await self._send_prepared_file(chat_id, result)
                 return
-        
-        await context.bot.send_message(chat_id=chat_id, text=f"▶️ Ejecutando {skill_name}...")
-        result = await agent_manager.use_and_kill(skill_name, task, user_id=f"tg:{chat_id}")
-        await self._maybe_send_screenshot(chat_id, result)
-        await self._send_prepared_file(chat_id, result)
+
+            # Ejecución normal
+            await context.bot.send_message(chat_id=chat_id, text=f"▶️ Ejecutando {skill_name}...")
+            result = await agent_manager.use_and_kill(skill_name, task, user_id=f"tg:{chat_id}")
+            await self._maybe_send_screenshot(chat_id, result)
+            await self._send_prepared_file(chat_id, result)
+        except Exception as e:
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=f"❌ Error ejecutando {skill_name}: {e}")
+            except Exception:
+                pass
 
     async def _request_credentials_from_user(
         self, 
@@ -1722,7 +1655,7 @@ def get_token_from_env() -> str:
         return ""
 
 
-async def run_telegram_bot() -> None:
+async def run_telegram_bot(stop_event: Optional[asyncio.Event] = None) -> None:
     token = get_token_from_env()
     if not token:
         raise RuntimeError("Falta TELEGRAM_BOT_TOKEN (ponlo en .env o en variable de entorno)")
@@ -1738,6 +1671,10 @@ async def run_telegram_bot() -> None:
 
     try:
         while True:
-            await asyncio.sleep(3600)
+            if stop_event is not None and stop_event.is_set():
+                break
+            await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        raise
     finally:
         await svc.stop()

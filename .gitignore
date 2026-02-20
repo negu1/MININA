@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyc
 *.pyd
 *.pyo
 *.so
@@ -48,7 +49,10 @@ test_execute.py
 test_imports.py
 test_skill_save.py
 requirements.txt
+skills_user/
 AUDITORIA_*.md
+!AUDITORIA_GENERAL_MININA.md
+!AUDITORIA_TECNICA_REQUISITOS.md
 MEMORY_SYSTEM_README.md
 PLAN_REFACTOR.md
 REFACTOR_COMPLETADO.md
