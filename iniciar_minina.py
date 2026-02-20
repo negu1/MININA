@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 MININA - Launcher Principal
-Inicia WebUI y servicios esenciales
+Inicia UI Local PyQt5 y servicios esenciales
 """
 
 import os
@@ -58,13 +58,32 @@ def check_dependencies():
     return True
 
 
-async def start_webui():
-    """Inicia el servidor WebUI"""
-    from core.WebUI import run_web_server
-    from core.config import get_settings
-    settings = get_settings()
-    logger.info(f"🌐 Iniciando MININA WebUI en http://{settings.WEBUI_HOST}:{settings.WEBUI_PORT}")
-    await run_web_server(host=settings.WEBUI_HOST, port=settings.WEBUI_PORT)
+async def start_ui_local():
+    """Inicia la UI Local PyQt5"""
+    from PyQt5.QtWidgets import QApplication
+    from PyQt5.QtCore import Qt
+    from core.ui.main_window import MainWindow
+    import sys
+    
+    logger.info("🖥️  Iniciando MININA UI Local")
+    
+    # Crear aplicación Qt
+    app = QApplication(sys.argv)
+    app.setApplicationName("MININA")
+    app.setApplicationVersion("3.0.0")
+    
+    # Crear ventana principal
+    window = MainWindow()
+    window.show()
+    
+    logger.info("✅ UI Local iniciada")
+    
+    # Ejecutar loop de Qt
+    while window.isVisible():
+        app.processEvents()
+        await asyncio.sleep(0.01)
+    
+    logger.info("🛑 UI Local cerrada")
 
 
 async def start_telegram():
@@ -82,7 +101,7 @@ async def start_telegram():
 async def main():
     """Función principal de inicio"""
     parser = argparse.ArgumentParser(description='MININA - Asistente Virtual')
-    parser.add_argument('--webui-only', action='store_true', help='Solo WebUI')
+    parser.add_argument('--ui-only', action='store_true', help='Solo UI Local')
     parser.add_argument('--telegram-only', action='store_true', help='Solo Telegram')
     args = parser.parse_args()
     
@@ -96,12 +115,12 @@ async def main():
     # Iniciar servicios
     tasks = []
     
-    if args.webui_only:
-        tasks.append(start_webui())
+    if args.ui_only:
+        tasks.append(start_ui_local())
     elif args.telegram_only:
         tasks.append(start_telegram())
     else:
-        tasks.append(start_webui())
+        tasks.append(start_ui_local())
         tasks.append(start_telegram())
     
     try:
