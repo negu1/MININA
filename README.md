@@ -71,16 +71,16 @@ Supervisor (valida y audita)
 * Reportes diarios/semanales
 * Gestión de proyectos (Asana, Notion, etc.)
 * Envío de correos, archivos y notificaciones
-* Operación de pequeños negocios (stock, pedidos, cierres)
+* Operación de pequeñoso grandes emprresas y negocios (stock, pedidos, cierres ect ect)
 
 ---
 
 ## ¿Para quién es?
 
 * Usuarios avanzados que quieren automatizar sin perder control
-* Pequeños negocios que necesitan ejecutar procesos diarios
+* Pequeños negocios que necesitan ejecutar procesos diarios grandes negocios que necesitas mas control 
 * Desarrolladores que buscan una base segura para automatización
-* Equipos que no pueden usar soluciones cloud cerradas
+* Equipos que no pueden usar soluciones cloud cerradas ect ect
 
 ---
 
