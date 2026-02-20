@@ -48,15 +48,15 @@ class MININAApiClient:
     def get_skills(self) -> List[Dict[str, Any]]:
         """Obtener lista de skills del usuario directamente del SkillVault"""
         try:
-            skills = vault.list_skills()
+            skills = vault.list_user_skills()
             return [
                 {
-                    "id": skill.get("name", "unknown"),
+                    "id": skill.get("id", "unknown"),
                     "name": skill.get("name", "Unknown"),
                     "description": skill.get("description", ""),
                     "level": skill.get("level", "MEDIUM"),
                     "approved": skill.get("approved", False),
-                    "created_at": skill.get("created_at", ""),
+                    "created_at": skill.get("installed_at", ""),
                     "version": skill.get("version", "1.0.0")
                 }
                 for skill in skills
@@ -108,18 +108,8 @@ class MININAApiClient:
     def get_works(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
         """Obtener lista de works/archivos directamente del file_manager"""
         try:
-            works = works_manager.list_works(category=category)
-            return [
-                {
-                    "id": work.get("id", ""),
-                    "name": work.get("name", "Unknown"),
-                    "category": work.get("category", "general"),
-                    "created_at": work.get("created_at", ""),
-                    "size": work.get("size", 0),
-                    "path": str(work.get("path", ""))
-                }
-                for work in works
-            ]
+            works = works_manager.get_all_works(category=category)
+            return works
         except Exception as e:
             logger.error(f"Error obteniendo works: {e}")
             return []
