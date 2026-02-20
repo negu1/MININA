@@ -102,7 +102,7 @@ Este proyecto está en fase abierta de exploración y crecimiento.
 👉 **Estoy dispuesto a escuchar propuestas**, colaboraciones técnicas, ideas de integración o conversaciones estratégicas.
 
 **Autor:** Daniel Mora
-**Contacto:** vía GitHub / repositorio
+**Contacto:** vía GitHub / repositorio / DANIMOR985@GMAIL.COM /TELEGRAM @DANIDANIP1
 
 ---
 
